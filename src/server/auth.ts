@@ -11,21 +11,33 @@ export async function validateToken(token: string): Promise<AuthResponse> {
     throw new Error('AUTH_SERVICE_URL is not set');
   }
 
+  const requestBody = JSON.stringify({ token });
+  console.log('Auth Service Request:', {
+    url: authServiceUrl,
+    method: 'POST',
+    body: requestBody
+  });
+
   try {
     const response = await fetch(authServiceUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ token }),
+      body: requestBody,
+    });
+
+    const responseData = await response.json();
+    console.log('Auth Service Response:', {
+      status: response.status,
+      body: responseData
     });
 
     if (!response.ok) {
-      throw new Error('Failed to validate token');
+      throw new Error(`Failed to validate token: ${response.statusText}`);
     }
 
-    const data: AuthResponse = await response.json();
-    return data;
+    return responseData as AuthResponse;
   } catch (error) {
     console.error('Token validation error:', error);
     throw new TRPCError({
