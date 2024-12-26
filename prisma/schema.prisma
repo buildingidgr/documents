@@ -7,6 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Your model definitions remain unchanged
 model Document {
   id        String    @id @default(cuid())
   title     String

@@ -6,8 +6,13 @@ interface AuthResponse {
 }
 
 export async function validateToken(token: string): Promise<AuthResponse> {
+  const authServiceUrl = process.env.AUTH_SERVICE_URL;
+  if (!authServiceUrl) {
+    throw new Error('AUTH_SERVICE_URL is not set');
+  }
+
   try {
-    const response = await fetch('https://auth-service-production-16ee.up.railway.app/v1/token/validate', {
+    const response = await fetch(authServiceUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
