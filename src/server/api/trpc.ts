@@ -9,9 +9,13 @@ export const createTRPCContext = async (opts: CreateNextContextOptions) => {
   const { req, res } = opts;
   const token = req.headers.authorization?.split(' ')[1];
 
+  console.log('Creating tRPC context');
+  console.log('Authorization token:', token ? 'Present' : 'Missing');
+
   let userId: string | null = null;
   try {
     userId = await authenticateUser(token);
+    console.log('User authenticated, userId:', userId);
   } catch (error) {
     console.error('Authentication error:', error);
   }
