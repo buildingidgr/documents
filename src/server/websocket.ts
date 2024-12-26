@@ -24,11 +24,14 @@ export function setupWebSocket(server: any) {
         })
 
         if (document) {
-          const updatedContent = applyPatch(document.content, data.operations)[0]
-          await prisma.document.update({
-            where: { id: data.documentId },
-            data: { content: updatedContent },
-          })
+          const patchResult = applyPatch(document.content, data.operations);
+          if (patchResult.every(result => result === null)) {
+            const updatedContent = patchResult.newDocument;
+            await prisma.document.update({
+              where: { id: data.documentId },
+              data: { content: updatedContent as any },
+            });
+          }
 
           // Broadcast changes to all clients in the same document room
           wss.clients.forEach((client: DocumentWebSocket) => {
