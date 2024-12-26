@@ -1,5 +1,5 @@
 import { Server } from 'ws'
-import { applyPatches, Operation } from 'rfc6902'
+import { applyPatch, Operation } from 'rfc6902'
 import { prisma } from './db'
 
 export function setupWebSocket(server: any) {
@@ -19,7 +19,7 @@ export function setupWebSocket(server: any) {
         })
 
         if (document) {
-          const updatedContent = applyPatches(document.content, data.operations)
+          const updatedContent = applyPatch(document.content, data.operations)
           await prisma.document.update({
             where: { id: data.documentId },
             data: { content: updatedContent },
