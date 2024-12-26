@@ -1,11 +1,16 @@
-import { Server } from 'ws'
+import { Server, WebSocket } from 'ws'
 import { applyPatch, Operation } from 'rfc6902'
 import { prisma } from './db'
+
+// Extend the WebSocket type to include our custom property
+interface DocumentWebSocket extends WebSocket {
+  documentId?: string;
+}
 
 export function setupWebSocket(server: any) {
   const wss = new Server({ server })
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws: DocumentWebSocket) => {
     ws.on('message', async (message: string) => {
       const data = JSON.parse(message)
 
@@ -26,7 +31,7 @@ export function setupWebSocket(server: any) {
           })
 
           // Broadcast changes to all clients in the same document room
-          wss.clients.forEach((client) => {
+          wss.clients.forEach((client: DocumentWebSocket) => {
             if (client.documentId === data.documentId && client !== ws) {
               client.send(JSON.stringify({
                 type: 'update',
