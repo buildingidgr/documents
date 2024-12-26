@@ -3,14 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate && next build",
-    "start": "prisma migrate deploy && next start",
+    "dev": "ts-node --project tsconfig.server.json src/server/index.ts",
+    "build": "prisma generate && next build && tsc --project tsconfig.server.json",
+    "start": "prisma migrate deploy && NODE_ENV=production node dist/server/index.js",
     "lint": "next lint",
-    "postinstall": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
-    "db:push": "prisma db push"
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^5.8.0",
@@ -34,7 +31,8 @@
     "eslint": "^8.56.0",
     "eslint-config-next": "13.5.6",
     "prisma": "^5.8.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2"
   },
   "engines": {
     "node": ">=18.0.0"
