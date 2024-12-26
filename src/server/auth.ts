@@ -41,28 +41,19 @@ export async function validateToken(token: string): Promise<AuthResponse> {
     return responseData as AuthResponse;
   } catch (error) {
     console.error('Token validation error:', error);
-    throw new TRPCError({
-      code: 'UNAUTHORIZED',
-      message: 'Invalid or expired token',
-    });
+    throw new Error('Invalid or expired token');
   }
 }
 
 export async function authenticateUser(token: string | undefined): Promise<string> {
   if (!token) {
-    throw new TRPCError({
-      code: 'UNAUTHORIZED',
-      message: 'Authentication token is missing',
-    });
+    throw new Error('Authentication token is missing');
   }
 
   const authResponse = await validateToken(token);
 
   if (!authResponse.isValid) {
-    throw new TRPCError({
-      code: 'UNAUTHORIZED',
-      message: 'Invalid or expired token',
-    });
+    throw new Error('Invalid or expired token');
   }
 
   return authResponse.userId;
