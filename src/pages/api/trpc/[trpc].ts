@@ -1,6 +1,7 @@
 import { createNextApiHandler } from '@trpc/server/adapters/next';
 import { appRouter } from '../../../server/api/root';
 import { createTRPCContext } from '../../../server/api/trpc';
+import type { NextApiRequest, NextApiResponse } from 'next'
 
 const handler = createNextApiHandler({
   router: appRouter,
@@ -13,7 +14,7 @@ const handler = createNextApiHandler({
       : undefined,
 });
 
-export default async function (req, res) {
+export default async function (req: NextApiRequest, res: NextApiResponse) {
   console.log('Raw request:', {
     method: req.method,
     url: req.url,
