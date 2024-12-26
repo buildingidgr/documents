@@ -26,10 +26,20 @@ export function setupWebSocket(server: any) {
         if (document) {
           const patchResult = applyPatch(document.content, data.operations);
           if (patchResult.every(result => result === null)) {
-            const updatedContent = patchResult.newDocument;
+            const updatedContent = document.content;  // Use the original content as base
+            data.operations.forEach(op => {
+              if (op.op === 'replace' && typeof op.path === 'string') {
+                const path = op.path.split('/').filter(Boolean);
+                let current: any = updatedContent;
+                for (let i = 0; i < path.length - 1; i++) {
+                  current = current[path[i]];
+                }
+                current[path[path.length - 1]] = op.value;
+              }
+            });
             await prisma.document.update({
               where: { id: data.documentId },
-              data: { content: updatedContent as any },
+              data: { content: updatedContent },
             });
           }
 
