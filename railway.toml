@@ -1,0 +1,10 @@
+[build]
+builder = "nixpacks"
+buildCommand = "npm run db:migrate"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/api/healthcheck"
+healthcheckTimeout = 100
+restartPolicyType = "on_failure"
+
