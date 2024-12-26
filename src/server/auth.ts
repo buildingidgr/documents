@@ -1,5 +1,4 @@
 import { TRPCError } from '@trpc/server';
-import fetch from 'node-fetch';
 
 interface AuthResponse {
   isValid: boolean;
