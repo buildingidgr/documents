@@ -11,15 +11,16 @@ export async function validateToken(token: string): Promise<AuthResponse> {
     throw new Error('AUTH_SERVICE_URL is not set');
   }
 
+  const validationUrl = `${authServiceUrl}/v1/token/validate`;
   const requestBody = JSON.stringify({ token });
   console.log('Auth Service Request:', {
-    url: authServiceUrl,
+    url: validationUrl,
     method: 'POST',
     body: requestBody
   });
 
   try {
-    const response = await fetch(authServiceUrl, {
+    const response = await fetch(validationUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
