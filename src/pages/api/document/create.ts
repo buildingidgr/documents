@@ -34,6 +34,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const token = req.headers.authorization?.split(' ')[1];
     const userId = await authenticateUser(token);
 
+    // Ensure user exists in database
+    const user = await db.user.upsert({
+      where: { id: userId },
+      update: {},
+      create: {
+        id: userId,
+        name: null, // Can be updated later
+      },
+    });
+
     // Validate input
     const validatedInput = documentInputSchema.parse(req.body);
 
@@ -43,12 +53,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         title: validatedInput.title,
         content: validatedInput.content as Prisma.InputJsonValue,
         users: {
-          connect: { id: userId },
+          connect: { id: user.id },
         },
         versions: {
           create: {
             content: validatedInput.content as Prisma.InputJsonValue,
-            user: { connect: { id: userId } },
+            user: { connect: { id: user.id } },
           },
         },
       },
