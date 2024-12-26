@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { prisma } from '../../server/db'
+import { db } from '@/server/db'
 
 export default async function handler(
   req: NextApiRequest,
@@ -11,7 +11,7 @@ export default async function handler(
 
   try {
     // Test database connection
-    await prisma.$queryRaw`SELECT 1`;
+    await db.$queryRaw`SELECT 1`;
     return res.status(200).json({ status: 'healthy' });
   } catch (error) {
     console.error('Healthcheck failed:', error);

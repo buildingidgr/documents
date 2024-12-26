@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { prisma } from '../../../server/db';
-import { authenticateUser } from '../../../server/auth';
+import { db } from '@/server/db';
+import { authenticateUser } from '@/server/auth';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 
@@ -38,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const validatedInput = documentInputSchema.parse(req.body);
 
     // Create document
-    const newDocument = await prisma.document.create({
+    const newDocument = await db.document.create({
       data: {
         title: validatedInput.title,
         content: validatedInput.content as Prisma.InputJsonValue,
