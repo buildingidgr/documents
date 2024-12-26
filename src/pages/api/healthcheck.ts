@@ -1,21 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { prisma } from '../../server/db'
+import { prisma } from '../../../server/db'
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  if (process.env.NODE_ENV === 'production') {
-    try {
-      await prisma.$queryRaw`SELECT 1`
-      res.status(200).json({ status: 'ok' })
-    } catch (error) {
-      console.error('Health check failed:', error)
-      res.status(500).json({ status: 'error', message: 'Database connection failed' })
-    }
-  } else {
-    // During development or build, just return OK
-    res.status(200).json({ status: 'ok' })
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    // Test database connection
+    await prisma.$queryRaw`SELECT 1`;
+    return res.status(200).json({ status: 'healthy' });
+  } catch (error) {
+    console.error('Healthcheck failed:', error);
+    return res.status(500).json({ status: 'unhealthy', error: 'Database connection failed' });
   }
 }
 
