@@ -14,7 +14,6 @@ const handler = createNextApiHandler({
 });
 
 export default async function (req, res) {
-  // Log the raw request
   console.log('Raw request:', {
     method: req.method,
     url: req.url,
@@ -22,7 +21,6 @@ export default async function (req, res) {
     body: req.body,
   });
 
-  // If the body is a string, try to parse it as JSON
   if (typeof req.body === 'string') {
     try {
       req.body = JSON.parse(req.body);
@@ -32,15 +30,15 @@ export default async function (req, res) {
     }
   }
 
-  // Log the parsed request body
   console.log('Parsed request body:', req.body);
 
-  // If the body doesn't contain an input property, wrap the entire body as input
-  if (req.body && !req.body.input && req.body.title && req.body.content) {
-    req.body = { input: req.body };
-  }
+  // Wrap the entire body as input for tRPC
+  req.body = {
+    0: {
+      json: req.body
+    }
+  };
 
-  // Log the final request body
   console.log('Final request body:', req.body);
 
   return handler(req, res);
