@@ -19,7 +19,7 @@ export function setupWebSocket(server: any) {
         })
 
         if (document) {
-          const updatedContent = applyPatch(document.content, data.operations)
+          const updatedContent = applyPatch(document.content, data.operations)[0]
           await prisma.document.update({
             where: { id: data.documentId },
             data: { content: updatedContent },
