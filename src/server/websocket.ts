@@ -1,5 +1,5 @@
 import { Server, WebSocket } from 'ws'
-import { Server as HttpServer } from 'http'
+import { Server as HttpServer, IncomingMessage } from 'http'
 import { authenticateUser } from './auth'
 import { db } from './db'
 import { Prisma } from '@prisma/client'
@@ -22,12 +22,13 @@ export function setupWebSocket(server: HttpServer) {
 
   // Heartbeat to keep connections alive and detect stale ones
   const heartbeat = setInterval(() => {
-    wss.clients.forEach((ws: DocumentWebSocket) => {
-      if (!ws.isAlive) {
+    wss.clients.forEach((ws: WebSocket) => {
+      const docWs = ws as DocumentWebSocket
+      if (!docWs.isAlive) {
         ws.terminate()
         return
       }
-      ws.isAlive = false
+      docWs.isAlive = false
       ws.ping()
     })
   }, 30000)
@@ -36,36 +37,37 @@ export function setupWebSocket(server: HttpServer) {
     clearInterval(heartbeat)
   })
 
-  wss.on('connection', async (ws: DocumentWebSocket, req) => {
-    ws.isAlive = true
+  wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
+    const docWs = ws as DocumentWebSocket
+    docWs.isAlive = true
 
     // Handle authentication
     const token = req.headers['authorization']?.split(' ')[1]
     try {
       const userId = await authenticateUser(token)
-      ws.userId = userId
+      docWs.userId = userId
     } catch (error) {
       ws.close(1008, 'Authentication failed')
       return
     }
 
     ws.on('pong', () => {
-      ws.isAlive = true
+      docWs.isAlive = true
     })
 
-    ws.on('message', async (message: string) => {
+    ws.on('message', async (message: Buffer) => {
       try {
-        const data: DocumentUpdate = JSON.parse(message)
+        const data: DocumentUpdate = JSON.parse(message.toString())
         
         switch (data.type) {
           case 'update':
-            await handleDocumentUpdate(ws, data, wss)
+            await handleDocumentUpdate(docWs, data, wss)
             break
           case 'cursor':
-            await handleCursorUpdate(ws, data, wss)
+            await handleCursorUpdate(docWs, data, wss)
             break
           case 'presence':
-            await handlePresenceUpdate(ws, data, wss)
+            await handlePresenceUpdate(docWs, data, wss)
             break
           default:
             ws.send(JSON.stringify({ error: 'Unknown message type' }))
@@ -78,11 +80,11 @@ export function setupWebSocket(server: HttpServer) {
 
     ws.on('close', () => {
       // Notify other clients about user leaving
-      if (ws.documentId && ws.userId) {
-        broadcastToDocument(wss, ws.documentId, {
+      if (docWs.documentId && docWs.userId) {
+        broadcastToDocument(wss, docWs.documentId, {
           type: 'presence',
-          userId: ws.userId,
-          documentId: ws.documentId,
+          userId: docWs.userId,
+          documentId: docWs.documentId,
           data: { status: 'offline' }
         }, ws)
       }
@@ -108,7 +110,7 @@ async function handleDocumentUpdate(
   })
 
   if (!document) {
-    ws.send(JSON.stringify({ error: 'Document access denied' }))
+    (ws as WebSocket).send(JSON.stringify({ error: 'Document access denied' }))
     return
   }
 
@@ -175,10 +177,11 @@ function broadcastToDocument(
   data: DocumentUpdate,
   excludeWs?: WebSocket
 ) {
-  wss.clients.forEach((client: DocumentWebSocket) => {
+  wss.clients.forEach((client: WebSocket) => {
+    const docClient = client as DocumentWebSocket
     if (
       client !== excludeWs &&
-      client.documentId === documentId &&
+      docClient.documentId === documentId &&
       client.readyState === WebSocket.OPEN
     ) {
       client.send(JSON.stringify(data))

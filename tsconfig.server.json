@@ -5,7 +5,9 @@
     "outDir": "dist",
     "target": "es2017",
     "isolatedModules": false,
-    "noEmit": false
+    "noEmit": false,
+    "types": ["node", "ws"],
+    "esModuleInterop": true
   },
   "include": ["src/server/**/*.ts"]
 } 
