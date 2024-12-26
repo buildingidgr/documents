@@ -1,6 +1,7 @@
 import { Server, WebSocket } from 'ws'
 import { applyPatch, Operation } from 'rfc6902'
 import { prisma } from './db'
+import { Prisma } from '@prisma/client'
 
 // Extend the WebSocket type to include our custom property
 interface DocumentWebSocket extends WebSocket {
@@ -32,7 +33,7 @@ export function setupWebSocket(server: any) {
         if (document) {
           const patchResult = applyPatch(document.content, data.operations);
           if (patchResult.every(result => result === null)) {
-            const updatedContent = document.content;  // Use the original content as base
+            const updatedContent: Prisma.InputJsonValue = JSON.parse(JSON.stringify(document.content));
             data.operations.forEach((op: PatchOperation) => {
               if (op.op === 'replace' && typeof op.path === 'string') {
                 const path = op.path.split('/').filter(Boolean);
@@ -45,7 +46,7 @@ export function setupWebSocket(server: any) {
             });
             await prisma.document.update({
               where: { id: data.documentId },
-              data: { content: updatedContent },
+              data: { content: updatedContent as Prisma.InputJsonValue },
             });
           }
 
