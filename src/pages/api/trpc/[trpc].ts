@@ -38,13 +38,15 @@ export default async function (req: NextApiRequest, res: NextApiResponse) {
     // If not, wrap the entire body as input for tRPC
     const wrappedBody = {
       0: {
-        json: req.body
+        json: {
+          input: req.body
+        }
       }
     };
     req.body = wrappedBody;
   }
 
-  console.log('Final request body:', req.body);
+  console.log('Final request body:', JSON.stringify(req.body, null, 2));
 
   return handler(req, res);
 }

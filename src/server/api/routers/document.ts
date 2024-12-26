@@ -16,6 +16,14 @@ export const documentRouter = createTRPCRouter({
       console.log('Input received:', JSON.stringify(input, null, 2));
       console.log('Current user:', ctx.userId);
 
+      if (!input || !input.title || !input.content) {
+        console.error('Invalid input:', input);
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Invalid input: title and content are required',
+        });
+      }
+
       try {
         const newDocument = await ctx.prisma.document.create({
           data: {
