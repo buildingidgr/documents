@@ -1,51 +1,58 @@
-import { createNextApiHandler } from '@trpc/server/adapters/next';
-import { appRouter } from '../../../server/api/root';
-import { createTRPCContext } from '../../../server/api/trpc';
-import type { NextApiRequest, NextApiResponse } from 'next'
+import { initTRPC, TRPCError } from '@trpc/server';
+import { type CreateNextContextOptions } from '@trpc/server/adapters/next';
+import superjson from 'superjson';
+import { ZodError } from 'zod';
+import { prisma } from '../db';
+import { authenticateUser } from '../auth';
 
-const handler = createNextApiHandler({
-  router: appRouter,
-  createContext: createTRPCContext,
-  onError:
-    process.env.NODE_ENV === 'development'
-      ? ({ path, error }) => {
-          console.error(`❌ tRPC failed on ${path ?? '<no-path>'}: ${error.message}`);
-        }
-      : undefined,
+export const createTRPCContext = async (opts: CreateNextContextOptions) => {
+  const { req, res } = opts;
+  const token = req.headers.authorization?.split(' ')[1];
+
+  console.log('Creating tRPC context');
+  console.log('Authorization token:', token ? 'Present' : 'Missing');
+
+  let userId: string | null = null;
+  try {
+    userId = await authenticateUser(token);
+    console.log('User authenticated, userId:', userId);
+  } catch (error) {
+    console.error('Authentication error:', error);
+  }
+
+  return {
+    prisma,
+    userId,
+    req,
+    res,
+  };
+};
+
+const t = initTRPC.context<typeof createTRPCContext>().create({
+  transformer: superjson,
+  errorFormatter({ shape, error }) {
+    return {
+      ...shape,
+      data: {
+        ...shape.data,
+        zodError:
+          error.cause instanceof ZodError ? error.cause.flatten() : null,
+      },
+    };
+  },
 });
 
-export default async function (req: NextApiRequest, res: NextApiResponse) {
-  console.log('Raw request:', {
-    method: req.method,
-    url: req.url,
-    headers: req.headers,
-    body: req.body,
+export const createTRPCRouter = t.router;
+export const publicProcedure = t.procedure;
+export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
+  if (!ctx.userId) {
+    throw new TRPCError({ code: 'UNAUTHORIZED' });
+  }
+  return next({
+    ctx: {
+      ...ctx,
+      userId: ctx.userId,
+    },
   });
-
-  if (typeof req.body === 'string') {
-    try {
-      req.body = JSON.parse(req.body);
-    } catch (error) {
-      console.error('Failed to parse request body:', error);
-      return res.status(400).json({ error: 'Invalid JSON in request body' });
-    }
-  }
-
-  console.log('Parsed request body:', req.body);
-
-  // Check if the body is already in the correct format
-  if (!req.body['0'] || !req.body['0'].json) {
-    // If not, wrap the entire body as input for tRPC
-    const wrappedBody = {
-      0: {
-        json: req.body
-      }
-    };
-    req.body = wrappedBody;
-  }
-
-  console.log('Final request body:', req.body);
-
-  return handler(req, res);
-}
+});
 
