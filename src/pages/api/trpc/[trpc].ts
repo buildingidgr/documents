@@ -33,13 +33,18 @@ export default async function (req, res) {
   console.log('Parsed request body:', req.body);
 
   // Wrap the entire body as input for tRPC
-  req.body = {
+  const wrappedBody = {
     0: {
-      json: req.body
+      json: {
+        input: req.body
+      }
     }
   };
 
-  console.log('Final request body:', req.body);
+  console.log('Wrapped request body:', wrappedBody);
+
+  // Replace the original request body with the wrapped version
+  req.body = wrappedBody;
 
   return handler(req, res);
 }
