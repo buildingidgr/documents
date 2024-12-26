@@ -7,6 +7,12 @@ interface DocumentWebSocket extends WebSocket {
   documentId?: string;
 }
 
+interface PatchOperation {
+  op: string;
+  path: string;
+  value?: any;
+}
+
 export function setupWebSocket(server: any) {
   const wss = new Server({ server })
 
@@ -27,7 +33,7 @@ export function setupWebSocket(server: any) {
           const patchResult = applyPatch(document.content, data.operations);
           if (patchResult.every(result => result === null)) {
             const updatedContent = document.content;  // Use the original content as base
-            data.operations.forEach(op => {
+            data.operations.forEach((op: PatchOperation) => {
               if (op.op === 'replace' && typeof op.path === 'string') {
                 const path = op.path.split('/').filter(Boolean);
                 let current: any = updatedContent;
