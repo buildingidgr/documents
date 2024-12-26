@@ -1,8 +1,7 @@
-import { Server, WebSocket } from 'ws'
-import { applyPatch, Operation } from 'rfc6902'
+import { Server } from 'ws'
+import { applyPatch } from 'rfc6902'
 import { prisma } from './db'
 
-// Extend the WebSocket type to include our custom property
 interface DocumentWebSocket extends WebSocket {
   documentId?: string;
 }
@@ -10,30 +9,29 @@ interface DocumentWebSocket extends WebSocket {
 export function setupWebSocket(server: any) {
   const wss = new Server({ server })
 
-  wss.on('connection', (ws: DocumentWebSocket) => {
-    ws.on('message', async (message: string) => {
+  wss.on('connection', (ws: WebSocket) => {
+    const documentWs = ws as DocumentWebSocket;
+    documentWs.on('message', async (message: string) => {
       const data = JSON.parse(message)
 
       if (data.type === 'join') {
-        // Join a document room
-        ws.documentId = data.documentId
+        documentWs.documentId = data.documentId
       } else if (data.type === 'update') {
-        // Apply updates to the document
         const document = await prisma.document.findUnique({
           where: { id: data.documentId },
         })
 
         if (document) {
-          const updatedContent = applyPatch(document.content, data.operations)[0]
+          const updatedContent = applyPatch(document.content, data.operations).newDocument
           await prisma.document.update({
             where: { id: data.documentId },
             data: { content: updatedContent },
           })
 
-          // Broadcast changes to all clients in the same document room
-          wss.clients.forEach((client: DocumentWebSocket) => {
-            if (client.documentId === data.documentId && client !== ws) {
-              client.send(JSON.stringify({
+          wss.clients.forEach((client: WebSocket) => {
+            const docClient = client as DocumentWebSocket;
+            if (docClient.documentId === data.documentId && docClient !== documentWs) {
+              docClient.send(JSON.stringify({
                 type: 'update',
                 operations: data.operations,
               }))
