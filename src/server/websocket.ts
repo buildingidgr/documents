@@ -20,13 +20,23 @@ interface DocumentUpdate {
 }
 
 export function setupWebSocket(server: HttpServer) {
-  const wss = new WebSocketServer({ server })
+  console.log('Setting up WebSocket server...');
+  
+  const wss = new WebSocketServer({ 
+    server,
+    path: '/ws',
+    clientTracking: true
+  });
+
+  console.log('WebSocket server created');
 
   // Heartbeat to keep connections alive and detect stale ones
   const heartbeat = setInterval(() => {
+    console.log(`Heartbeat check - Active connections: ${wss.clients.size}`);
     wss.clients.forEach((ws: WebSocket) => {
       const docWs = ws as DocumentWebSocket
       if (docWs.isAlive === false) {
+        console.log('Terminating inactive connection');
         ws.terminate()
         return
       }
@@ -36,29 +46,44 @@ export function setupWebSocket(server: HttpServer) {
   }, 30000)
 
   wss.on('close', () => {
+    console.log('WebSocket server closing');
     clearInterval(heartbeat)
   })
 
+  wss.on('error', (error) => {
+    console.error('WebSocket server error:', error);
+  });
+
   wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
+    console.log('New WebSocket connection attempt');
+    console.log('Connection URL:', req.url);
+    console.log('Client IP:', req.socket.remoteAddress);
+    
     const docWs = ws as DocumentWebSocket
     docWs.isAlive = true
 
     // Get token and documentId from URL parameters
     const { query } = parseUrl(req.url || '', true)
+    console.log('URL Query parameters:', query);
+    
     const token = query.token as string
     const documentId = query.documentId as string
 
     if (!token) {
+      console.log('No token provided - closing connection');
       ws.close(1008, 'Authentication required')
       return
     }
 
     try {
+      console.log('Authenticating connection...');
       const userId = await authenticateUser(token)
+      console.log('User authenticated:', userId);
       docWs.userId = userId
 
       // Verify document access if documentId is provided
       if (documentId) {
+        console.log('Verifying document access:', documentId);
         const document = await db.document.findFirst({
           where: {
             id: documentId,
@@ -71,12 +96,18 @@ export function setupWebSocket(server: HttpServer) {
         })
 
         if (!document) {
+          console.log('Document access denied');
           ws.close(1008, 'Document access denied')
           return
         }
 
+        console.log('Document access verified');
         docWs.documentId = documentId
       }
+
+      ws.on('error', (error) => {
+        console.error('WebSocket connection error:', error);
+      });
 
       ws.on('pong', () => {
         docWs.isAlive = true
@@ -85,9 +116,11 @@ export function setupWebSocket(server: HttpServer) {
       ws.on('message', (message: RawData) => {
         try {
           const data: DocumentUpdate = JSON.parse(message.toString())
+          console.log('Received message:', data.type);
           
           // Ensure the documentId matches if it was provided in URL
           if (docWs.documentId && data.documentId !== docWs.documentId) {
+            console.log('Document ID mismatch');
             ws.send(JSON.stringify({ error: 'Document ID mismatch' }))
             return
           }
@@ -115,6 +148,7 @@ export function setupWebSocket(server: HttpServer) {
                 })
               break
             default:
+              console.log('Unknown message type:', data.type);
               ws.send(JSON.stringify({ error: 'Unknown message type' }))
           }
         } catch (error) {
@@ -123,7 +157,8 @@ export function setupWebSocket(server: HttpServer) {
         }
       })
 
-      ws.on('close', () => {
+      ws.on('close', (code, reason) => {
+        console.log(`WebSocket closed - Code: ${code}, Reason: ${reason}`);
         if (docWs.documentId && docWs.userId) {
           broadcastToDocument(wss, docWs.documentId, {
             type: 'presence',
@@ -135,6 +170,7 @@ export function setupWebSocket(server: HttpServer) {
       })
 
       // Send initial connection success message
+      console.log('Sending connection success message');
       ws.send(JSON.stringify({ 
         type: 'connected',
         userId: userId,
@@ -146,6 +182,8 @@ export function setupWebSocket(server: HttpServer) {
       ws.close(1008, 'Authentication failed')
     }
   })
+
+  return wss;
 }
 
 async function handleDocumentUpdate(
