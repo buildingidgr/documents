@@ -23,42 +23,54 @@ export function setupWebSocket(server: HttpServer) {
   console.log('Setting up WebSocket server...');
   
   const wss = new WebSocketServer({ 
-    server,
-    path: undefined,
+    noServer: true, // Don't attach to server automatically
     clientTracking: true,
     perMessageDeflate: false, // Disable compression
-    maxPayload: 1024 * 1024, // 1MB max message size
-    verifyClient: async (info, callback) => {
-      console.log('Verifying client connection...');
-      console.log('Connection URL:', info.req.url);
-      console.log('Headers:', info.req.headers);
-      
-      const { pathname } = parseUrl(info.req.url || '');
-      if (pathname !== '/ws' && pathname !== '/websocket') {
-        console.log('Invalid WebSocket path:', pathname);
-        callback(false, 400, 'Invalid WebSocket path');
-        return;
-      }
-
-      // Allow connections from localhost during development
-      const origin = info.req.headers.origin;
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'https://localhost:3000',
-        'https://documents-production.up.railway.app'
-      ];
-      
-      if (!origin || !allowedOrigins.includes(origin)) {
-        console.log('Invalid origin:', origin);
-        callback(false, 403, 'Origin not allowed');
-        return;
-      }
-
-      callback(true);
-    }
+    maxPayload: 1024 * 1024 // 1MB max message size
   });
 
   console.log('WebSocket server created');
+
+  // Handle upgrade requests
+  server.on('upgrade', async (request: IncomingMessage, socket, head) => {
+    console.log('Upgrade request received');
+    console.log('Connection URL:', request.url);
+    console.log('Headers:', request.headers);
+
+    const { pathname, query } = parseUrl(request.url || '', true);
+    
+    // Verify path
+    if (pathname !== '/ws' && pathname !== '/websocket') {
+      console.log('Invalid WebSocket path:', pathname);
+      socket.destroy();
+      return;
+    }
+
+    // Verify origin
+    const origin = request.headers.origin;
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'https://localhost:3000',
+      'https://documents-production.up.railway.app'
+    ];
+    
+    if (!origin || !allowedOrigins.includes(origin)) {
+      console.log('Invalid origin:', origin);
+      socket.destroy();
+      return;
+    }
+
+    try {
+      // Complete the WebSocket upgrade
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        console.log('WebSocket connection upgraded successfully');
+        wss.emit('connection', ws, request);
+      });
+    } catch (error) {
+      console.error('Error during WebSocket upgrade:', error);
+      socket.destroy();
+    }
+  });
 
   // Shorter heartbeat interval for Railway
   const heartbeat = setInterval(() => {
