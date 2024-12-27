@@ -30,8 +30,8 @@ export function setupWebSocket(server: HttpServer) {
     // Railway specific settings
     backlog: 100, // Maximum length of the queue of pending connections
     keepAliveTimeout: 60000, // 60 seconds
-    connectTimeout: 10000, // 10 seconds
-    verifyClient: false // We handle verification manually
+    connectTimeout: 10000 // 10 seconds
+    // We handle verification manually in the upgrade handler
   });
 
   console.log('WebSocket server created');
