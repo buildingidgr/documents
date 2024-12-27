@@ -8,8 +8,9 @@
     "noEmit": false,
     "moduleResolution": "node",
     "skipLibCheck": true,
-    "types": ["node", "ws"],
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "typeRoots": ["./node_modules/@types"]
   },
   "include": ["src/server/**/*.ts"]
 } 
