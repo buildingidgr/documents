@@ -24,8 +24,21 @@ export function setupWebSocket(server: HttpServer) {
   
   const wss = new WebSocketServer({ 
     server,
-    path: '/ws',
-    clientTracking: true
+    path: undefined,
+    clientTracking: true,
+    verifyClient: async (info, callback) => {
+      console.log('Verifying client connection...');
+      console.log('Connection URL:', info.req.url);
+      
+      const { pathname } = parseUrl(info.req.url || '');
+      if (pathname !== '/ws' && pathname !== '/websocket') {
+        console.log('Invalid WebSocket path:', pathname);
+        callback(false, 400, 'Invalid WebSocket path');
+        return;
+      }
+
+      callback(true);
+    }
   });
 
   console.log('WebSocket server created');
@@ -50,7 +63,7 @@ export function setupWebSocket(server: HttpServer) {
     clearInterval(heartbeat)
   })
 
-  wss.on('error', (error) => {
+  wss.on('error', (error: Error) => {
     console.error('WebSocket server error:', error);
   });
 
@@ -105,7 +118,7 @@ export function setupWebSocket(server: HttpServer) {
         docWs.documentId = documentId
       }
 
-      ws.on('error', (error) => {
+      ws.on('error', (error: Error) => {
         console.error('WebSocket connection error:', error);
       });
 
@@ -157,7 +170,7 @@ export function setupWebSocket(server: HttpServer) {
         }
       })
 
-      ws.on('close', (code, reason) => {
+      ws.on('close', (code: number, reason: string) => {
         console.log(`WebSocket closed - Code: ${code}, Reason: ${reason}`);
         if (docWs.documentId && docWs.userId) {
           broadcastToDocument(wss, docWs.documentId, {
