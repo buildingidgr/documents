@@ -27,11 +27,7 @@ export function setupWebSocket(server: HttpServer) {
     clientTracking: true,
     perMessageDeflate: false, // Disable compression
     maxPayload: 1024 * 1024, // 1MB max message size
-    // Railway specific settings
-    backlog: 100, // Maximum length of the queue of pending connections
-    keepAliveTimeout: 60000, // 60 seconds
-    connectTimeout: 10000 // 10 seconds
-    // We handle verification manually in the upgrade handler
+    backlog: 100 // Maximum length of the queue of pending connections
   });
 
   console.log('WebSocket server created');
@@ -103,29 +99,41 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  // Shorter heartbeat interval for Railway
-  const heartbeat = setInterval(() => {
-    console.log(`Heartbeat check - Active connections: ${wss.clients.size}`);
-    wss.clients.forEach((ws: WebSocket) => {
-      const docWs = ws as DocumentWebSocket;
-      if (docWs.isAlive === false) {
-        console.log('Terminating inactive connection');
-        ws.terminate();
-        return;
+  // Handle connection timeouts
+  wss.on('connection', (ws: WebSocket) => {
+    const docWs = ws as DocumentWebSocket;
+    docWs.isAlive = true;
+
+    // Set up a per-connection timeout
+    const connectionTimeout = setTimeout(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        console.log('Connection timeout - closing connection');
+        ws.close(1000, 'Connection timeout');
       }
-      docWs.isAlive = false;
-      try {
-        ws.ping();
-      } catch (error) {
-        console.error('Error sending ping:', error);
-        ws.terminate();
+    }, 60000); // 60 seconds
+
+    // Clear the timeout when the connection closes
+    ws.on('close', () => {
+      clearTimeout(connectionTimeout);
+    });
+
+    // Reset the timeout on any activity
+    ws.on('message', () => {
+      if (connectionTimeout) {
+        clearTimeout(connectionTimeout);
       }
     });
-  }, 5000); // Reduced to 5 seconds for Railway
+
+    ws.on('pong', () => {
+      if (connectionTimeout) {
+        clearTimeout(connectionTimeout);
+      }
+      docWs.isAlive = true;
+    });
+  });
 
   wss.on('close', () => {
     console.log('WebSocket server closing');
-    clearInterval(heartbeat)
   })
 
   wss.on('error', (error: Error) => {
