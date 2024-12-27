@@ -68,25 +68,7 @@ export function setupWebSocket(server: HttpServer) {
       return;
     }
 
-    // Set CORS headers for WebSocket
-    if (origin) {
-      const responseHeaders = [
-        'HTTP/1.1 101 Switching Protocols',
-        'Upgrade: websocket',
-        'Connection: Upgrade',
-        `Sec-WebSocket-Accept: ${request.headers['sec-websocket-key']}`,
-        `Access-Control-Allow-Origin: ${origin}`,
-        'Access-Control-Allow-Methods: GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers: X-Requested-With,content-type',
-        'Access-Control-Allow-Credentials: true',
-        // Railway specific headers
-        'X-Content-Type-Options: nosniff',
-        'Keep-Alive: timeout=60',
-        'Connection: keep-alive'
-      ];
-      socket.write(responseHeaders.join('\r\n') + '\r\n\r\n');
-    }
-
+    // Don't send WebSocket headers manually, let the ws library handle it
     try {
       // Complete the WebSocket upgrade
       wss.handleUpgrade(request, socket, head, (ws) => {
@@ -142,31 +124,42 @@ export function setupWebSocket(server: HttpServer) {
 
   wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
     console.log('New WebSocket connection attempt');
-    console.log('Connection URL:', req.url);
-    console.log('Client IP:', req.socket.remoteAddress);
-    console.log('Headers:', req.headers);
     
-    const docWs = ws as DocumentWebSocket
-    docWs.isAlive = true
+    const docWs = ws as DocumentWebSocket;
+    docWs.isAlive = true;
 
     // Get token and documentId from URL parameters
-    const { query } = parseUrl(req.url || '', true)
+    const { query } = parseUrl(req.url || '', true);
     console.log('URL Query parameters:', query);
     
-    const token = query.token as string
-    const documentId = query.documentId as string
+    const token = query.token as string;
+    const documentId = query.documentId as string;
 
     if (!token) {
       console.log('No token provided - closing connection');
-      ws.close(1008, 'Authentication required')
-      return
+      ws.close(1008, 'Authentication required');
+      return;
     }
 
     try {
       console.log('Authenticating connection...');
-      const userId = await authenticateUser(token)
+      const userId = await authenticateUser(token);
       console.log('User authenticated:', userId);
-      docWs.userId = userId
+      docWs.userId = userId;
+
+      // Send initial connection success message first
+      console.log('Sending connection success message');
+      try {
+        ws.send(JSON.stringify({ 
+          type: 'connected',
+          userId: userId,
+          documentId: documentId || null
+        }));
+      } catch (error) {
+        console.error('Error sending connection success message:', error);
+        ws.close(1011, 'Failed to send connection message');
+        return;
+      }
 
       // Verify document access if documentId is provided
       if (documentId) {
@@ -180,27 +173,73 @@ export function setupWebSocket(server: HttpServer) {
               }
             }
           }
-        })
+        });
 
         if (!document) {
           console.log('Document access denied');
-          ws.close(1008, 'Document access denied')
-          return
+          ws.close(1008, 'Document access denied');
+          return;
         }
 
         console.log('Document access verified');
-        docWs.documentId = documentId
+        docWs.documentId = documentId;
       }
 
-      // Set up error handling first
+      // Set up message handler
+      ws.on('message', async (message: RawData) => {
+        try {
+          const data: DocumentUpdate = JSON.parse(message.toString());
+          console.log('Received message:', data.type);
+          
+          // Ensure the documentId matches if it was provided in URL
+          if (docWs.documentId && data.documentId !== docWs.documentId) {
+            console.log('Document ID mismatch');
+            ws.send(JSON.stringify({ error: 'Document ID mismatch' }));
+            return;
+          }
+          
+          switch (data.type) {
+            case 'update':
+              await handleDocumentUpdate(docWs, data, wss);
+              break;
+            case 'cursor':
+              await handleCursorUpdate(docWs, data, wss);
+              break;
+            case 'presence':
+              await handlePresenceUpdate(docWs, data, wss);
+              break;
+            default:
+              console.log('Unknown message type:', data.type);
+              ws.send(JSON.stringify({ error: 'Unknown message type' }));
+          }
+        } catch (error) {
+          console.error('WebSocket message error:', error);
+          ws.send(JSON.stringify({ error: 'Invalid message format' }));
+        }
+      });
+
+      // Set up error handler
       ws.on('error', (error: Error) => {
         console.error('WebSocket connection error:', error);
+      });
+
+      // Set up close handler
+      ws.on('close', (code: number, reason: string) => {
+        console.log(`WebSocket closed - Code: ${code}, Reason: ${reason}`);
+        if (docWs.documentId && docWs.userId) {
+          broadcastToDocument(wss, docWs.documentId, {
+            type: 'presence',
+            userId: docWs.userId,
+            documentId: docWs.documentId,
+            data: { status: 'offline' }
+          }, ws);
+        }
       });
 
       // Set up pong handler
       ws.on('pong', () => {
         console.log('Received pong from client');
-        docWs.isAlive = true
+        docWs.isAlive = true;
       });
 
       // Send an immediate ping to verify connection
@@ -210,81 +249,11 @@ export function setupWebSocket(server: HttpServer) {
         console.error('Error sending initial ping:', error);
       }
 
-      ws.on('message', (message: RawData) => {
-        try {
-          const data: DocumentUpdate = JSON.parse(message.toString())
-          console.log('Received message:', data.type);
-          
-          // Ensure the documentId matches if it was provided in URL
-          if (docWs.documentId && data.documentId !== docWs.documentId) {
-            console.log('Document ID mismatch');
-            ws.send(JSON.stringify({ error: 'Document ID mismatch' }))
-            return
-          }
-          
-          switch (data.type) {
-            case 'update':
-              handleDocumentUpdate(docWs, data, wss)
-                .catch(error => {
-                  console.error('Document update error:', error)
-                  ws.send(JSON.stringify({ error: 'Failed to update document' }))
-                })
-              break
-            case 'cursor':
-              handleCursorUpdate(docWs, data, wss)
-                .catch(error => {
-                  console.error('Cursor update error:', error)
-                  ws.send(JSON.stringify({ error: 'Failed to update cursor' }))
-                })
-              break
-            case 'presence':
-              handlePresenceUpdate(docWs, data, wss)
-                .catch(error => {
-                  console.error('Presence update error:', error)
-                  ws.send(JSON.stringify({ error: 'Failed to update presence' }))
-                })
-              break
-            default:
-              console.log('Unknown message type:', data.type);
-              ws.send(JSON.stringify({ error: 'Unknown message type' }))
-          }
-        } catch (error) {
-          console.error('WebSocket message error:', error)
-          ws.send(JSON.stringify({ error: 'Invalid message format' }))
-        }
-      })
-
-      ws.on('close', (code: number, reason: string) => {
-        console.log(`WebSocket closed - Code: ${code}, Reason: ${reason}`);
-        if (docWs.documentId && docWs.userId) {
-          broadcastToDocument(wss, docWs.documentId, {
-            type: 'presence',
-            userId: docWs.userId,
-            documentId: docWs.documentId,
-            data: { status: 'offline' }
-          }, ws)
-        }
-      })
-
-      // Send initial connection success message
-      console.log('Sending connection success message');
-      try {
-        ws.send(JSON.stringify({ 
-          type: 'connected',
-          userId: userId,
-          documentId: docWs.documentId
-        }))
-      } catch (error) {
-        console.error('Error sending connection success message:', error);
-        ws.close(1011, 'Failed to send connection message');
-        return;
-      }
-
     } catch (error) {
-      console.error('Authentication error:', error)
-      ws.close(1008, 'Authentication failed')
+      console.error('Authentication error:', error);
+      ws.close(1008, 'Authentication failed');
     }
-  })
+  });
 
   return wss;
 }
