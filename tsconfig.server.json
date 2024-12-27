@@ -10,7 +10,10 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "typeRoots": ["./node_modules/@types"]
+    "typeRoots": ["./node_modules/@types"],
+    "sourceMap": true,
+    "rootDir": "src"
   },
-  "include": ["src/server/**/*.ts"]
+  "include": ["src/server/**/*.ts"],
+  "exclude": ["node_modules"]
 } 
