@@ -4,6 +4,7 @@ import { Server as HttpServer, IncomingMessage } from 'http'
 import { authenticateUser } from './auth'
 import { db } from './db'
 import { Prisma } from '@prisma/client'
+import { parse as parseUrl } from 'url'
 
 interface DocumentWebSocket extends WebSocket {
   documentId?: string
@@ -38,75 +39,76 @@ export function setupWebSocket(server: HttpServer) {
     clearInterval(heartbeat)
   })
 
-  wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+  wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
     const docWs = ws as DocumentWebSocket
     docWs.isAlive = true
 
-    // Handle authentication
-    const token = req.headers['authorization']?.split(' ')[1]
+    // Get token from URL parameters
+    const { query } = parseUrl(req.url || '', true)
+    const token = query.token as string
+
     if (!token) {
       ws.close(1008, 'Authentication required')
       return
     }
 
-    authenticateUser(token)
-      .then((userId) => {
-        docWs.userId = userId
+    try {
+      const userId = await authenticateUser(token)
+      docWs.userId = userId
 
-        ws.on('pong', () => {
-          docWs.isAlive = true
-        })
-
-        ws.on('message', (message: RawData) => {
-          try {
-            const data: DocumentUpdate = JSON.parse(message.toString())
-            
-            switch (data.type) {
-              case 'update':
-                handleDocumentUpdate(docWs, data, wss)
-                  .catch(error => {
-                    console.error('Document update error:', error)
-                    ws.send(JSON.stringify({ error: 'Failed to update document' }))
-                  })
-                break
-              case 'cursor':
-                handleCursorUpdate(docWs, data, wss)
-                  .catch(error => {
-                    console.error('Cursor update error:', error)
-                    ws.send(JSON.stringify({ error: 'Failed to update cursor' }))
-                  })
-                break
-              case 'presence':
-                handlePresenceUpdate(docWs, data, wss)
-                  .catch(error => {
-                    console.error('Presence update error:', error)
-                    ws.send(JSON.stringify({ error: 'Failed to update presence' }))
-                  })
-                break
-              default:
-                ws.send(JSON.stringify({ error: 'Unknown message type' }))
-            }
-          } catch (error) {
-            console.error('WebSocket message error:', error)
-            ws.send(JSON.stringify({ error: 'Invalid message format' }))
-          }
-        })
-
-        ws.on('close', () => {
-          if (docWs.documentId && docWs.userId) {
-            broadcastToDocument(wss, docWs.documentId, {
-              type: 'presence',
-              userId: docWs.userId,
-              documentId: docWs.documentId,
-              data: { status: 'offline' }
-            }, ws)
-          }
-        })
+      ws.on('pong', () => {
+        docWs.isAlive = true
       })
-      .catch(error => {
-        console.error('Authentication error:', error)
-        ws.close(1008, 'Authentication failed')
+
+      ws.on('message', (message: RawData) => {
+        try {
+          const data: DocumentUpdate = JSON.parse(message.toString())
+          
+          switch (data.type) {
+            case 'update':
+              handleDocumentUpdate(docWs, data, wss)
+                .catch(error => {
+                  console.error('Document update error:', error)
+                  ws.send(JSON.stringify({ error: 'Failed to update document' }))
+                })
+              break
+            case 'cursor':
+              handleCursorUpdate(docWs, data, wss)
+                .catch(error => {
+                  console.error('Cursor update error:', error)
+                  ws.send(JSON.stringify({ error: 'Failed to update cursor' }))
+                })
+              break
+            case 'presence':
+              handlePresenceUpdate(docWs, data, wss)
+                .catch(error => {
+                  console.error('Presence update error:', error)
+                  ws.send(JSON.stringify({ error: 'Failed to update presence' }))
+                })
+              break
+            default:
+              ws.send(JSON.stringify({ error: 'Unknown message type' }))
+          }
+        } catch (error) {
+          console.error('WebSocket message error:', error)
+          ws.send(JSON.stringify({ error: 'Invalid message format' }))
+        }
       })
+
+      ws.on('close', () => {
+        if (docWs.documentId && docWs.userId) {
+          broadcastToDocument(wss, docWs.documentId, {
+            type: 'presence',
+            userId: docWs.userId,
+            documentId: docWs.documentId,
+            data: { status: 'offline' }
+          }, ws)
+        }
+      })
+    } catch (error) {
+      console.error('Authentication error:', error)
+      ws.close(1008, 'Authentication failed')
+    }
   })
 }
 
