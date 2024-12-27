@@ -40,6 +40,20 @@ export function setupWebSocket(server: HttpServer) {
         return;
       }
 
+      // Allow connections from localhost during development
+      const origin = info.req.headers.origin;
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'https://localhost:3000',
+        'https://documents-production.up.railway.app'
+      ];
+      
+      if (!origin || !allowedOrigins.includes(origin)) {
+        console.log('Invalid origin:', origin);
+        callback(false, 403, 'Origin not allowed');
+        return;
+      }
+
       callback(true);
     }
   });
