@@ -43,9 +43,10 @@ export function setupWebSocket(server: HttpServer) {
     const docWs = ws as DocumentWebSocket
     docWs.isAlive = true
 
-    // Get token from URL parameters
+    // Get token and documentId from URL parameters
     const { query } = parseUrl(req.url || '', true)
     const token = query.token as string
+    const documentId = query.documentId as string
 
     if (!token) {
       ws.close(1008, 'Authentication required')
@@ -56,6 +57,27 @@ export function setupWebSocket(server: HttpServer) {
       const userId = await authenticateUser(token)
       docWs.userId = userId
 
+      // Verify document access if documentId is provided
+      if (documentId) {
+        const document = await db.document.findFirst({
+          where: {
+            id: documentId,
+            users: {
+              some: {
+                id: userId
+              }
+            }
+          }
+        })
+
+        if (!document) {
+          ws.close(1008, 'Document access denied')
+          return
+        }
+
+        docWs.documentId = documentId
+      }
+
       ws.on('pong', () => {
         docWs.isAlive = true
       })
@@ -63,6 +85,12 @@ export function setupWebSocket(server: HttpServer) {
       ws.on('message', (message: RawData) => {
         try {
           const data: DocumentUpdate = JSON.parse(message.toString())
+          
+          // Ensure the documentId matches if it was provided in URL
+          if (docWs.documentId && data.documentId !== docWs.documentId) {
+            ws.send(JSON.stringify({ error: 'Document ID mismatch' }))
+            return
+          }
           
           switch (data.type) {
             case 'update':
@@ -105,6 +133,14 @@ export function setupWebSocket(server: HttpServer) {
           }, ws)
         }
       })
+
+      // Send initial connection success message
+      ws.send(JSON.stringify({ 
+        type: 'connected',
+        userId: userId,
+        documentId: docWs.documentId
+      }))
+
     } catch (error) {
       console.error('Authentication error:', error)
       ws.close(1008, 'Authentication failed')
