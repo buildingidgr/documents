@@ -8,3 +8,7 @@ healthcheckPath = "/api/healthcheck"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
 
+[deploy.websocket]
+enabled = true
+path = ["/ws", "/websocket"]
+
