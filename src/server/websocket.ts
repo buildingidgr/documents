@@ -26,9 +26,12 @@ export function setupWebSocket(server: HttpServer) {
     server,
     path: undefined,
     clientTracking: true,
+    perMessageDeflate: false, // Disable compression
+    maxPayload: 1024 * 1024, // 1MB max message size
     verifyClient: async (info, callback) => {
       console.log('Verifying client connection...');
       console.log('Connection URL:', info.req.url);
+      console.log('Headers:', info.req.headers);
       
       const { pathname } = parseUrl(info.req.url || '');
       if (pathname !== '/ws' && pathname !== '/websocket') {
@@ -43,7 +46,7 @@ export function setupWebSocket(server: HttpServer) {
 
   console.log('WebSocket server created');
 
-  // Heartbeat to keep connections alive and detect stale ones
+  // Shorter heartbeat interval for Railway
   const heartbeat = setInterval(() => {
     console.log(`Heartbeat check - Active connections: ${wss.clients.size}`);
     wss.clients.forEach((ws: WebSocket) => {
@@ -54,9 +57,14 @@ export function setupWebSocket(server: HttpServer) {
         return
       }
       docWs.isAlive = false
-      ws.ping()
+      try {
+        ws.ping()
+      } catch (error) {
+        console.error('Error sending ping:', error);
+        ws.terminate();
+      }
     })
-  }, 30000)
+  }, 15000) // 15 seconds
 
   wss.on('close', () => {
     console.log('WebSocket server closing');
@@ -71,6 +79,7 @@ export function setupWebSocket(server: HttpServer) {
     console.log('New WebSocket connection attempt');
     console.log('Connection URL:', req.url);
     console.log('Client IP:', req.socket.remoteAddress);
+    console.log('Headers:', req.headers);
     
     const docWs = ws as DocumentWebSocket
     docWs.isAlive = true
@@ -118,13 +127,23 @@ export function setupWebSocket(server: HttpServer) {
         docWs.documentId = documentId
       }
 
+      // Set up error handling first
       ws.on('error', (error: Error) => {
         console.error('WebSocket connection error:', error);
       });
 
+      // Set up pong handler
       ws.on('pong', () => {
+        console.log('Received pong from client');
         docWs.isAlive = true
-      })
+      });
+
+      // Send an immediate ping to verify connection
+      try {
+        ws.ping();
+      } catch (error) {
+        console.error('Error sending initial ping:', error);
+      }
 
       ws.on('message', (message: RawData) => {
         try {
@@ -184,11 +203,17 @@ export function setupWebSocket(server: HttpServer) {
 
       // Send initial connection success message
       console.log('Sending connection success message');
-      ws.send(JSON.stringify({ 
-        type: 'connected',
-        userId: userId,
-        documentId: docWs.documentId
-      }))
+      try {
+        ws.send(JSON.stringify({ 
+          type: 'connected',
+          userId: userId,
+          documentId: docWs.documentId
+        }))
+      } catch (error) {
+        console.error('Error sending connection success message:', error);
+        ws.close(1011, 'Failed to send connection message');
+        return;
+      }
 
     } catch (error) {
       console.error('Authentication error:', error)
