@@ -6,6 +6,8 @@
     "target": "es2017",
     "isolatedModules": false,
     "noEmit": false,
+    "moduleResolution": "node",
+    "skipLibCheck": true,
     "types": ["node", "ws"],
     "esModuleInterop": true
   },

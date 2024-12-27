@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client'
 interface DocumentWebSocket extends WebSocket {
   documentId?: string
   userId?: string
-  isAlive: boolean
+  isAlive?: boolean
 }
 
 interface DocumentUpdate {
@@ -24,7 +24,7 @@ export function setupWebSocket(server: HttpServer) {
   const heartbeat = setInterval(() => {
     wss.clients.forEach((ws: WebSocket) => {
       const docWs = ws as DocumentWebSocket
-      if (!docWs.isAlive) {
+      if (docWs.isAlive === false) {
         ws.terminate()
         return
       }
@@ -52,12 +52,13 @@ export function setupWebSocket(server: HttpServer) {
     }
 
     ws.on('pong', () => {
+      const docWs = ws as DocumentWebSocket
       docWs.isAlive = true
     })
 
-    ws.on('message', async (message: Buffer) => {
+    ws.on('message', async (message: Buffer | string) => {
       try {
-        const data: DocumentUpdate = JSON.parse(message.toString())
+        const data: DocumentUpdate = JSON.parse(typeof message === 'string' ? message : message.toString())
         
         switch (data.type) {
           case 'update':
