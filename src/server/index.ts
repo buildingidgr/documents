@@ -24,7 +24,9 @@ app.prepare().then(() => {
       const allowedOrigins = [
         'http://localhost:3000',
         'https://localhost:3000',
-        'https://documents-production.up.railway.app'
+        'https://documents-production.up.railway.app',
+        'https://piehost.com',
+        'http://piehost.com'
       ];
 
       if (origin && allowedOrigins.includes(origin)) {
