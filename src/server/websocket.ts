@@ -47,7 +47,7 @@ export function setupWebSocket(server: HttpServer) {
     }
 
     // Verify origin
-    const origin = request.headers.origin;
+    const origin = request.headers.origin || null;
     const allowedOrigins = [
       'http://localhost:3000',
       'https://localhost:3000',
