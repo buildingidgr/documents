@@ -26,7 +26,12 @@ export function setupWebSocket(server: HttpServer) {
     noServer: true, // Don't attach to server automatically
     clientTracking: true,
     perMessageDeflate: false, // Disable compression
-    maxPayload: 1024 * 1024 // 1MB max message size
+    maxPayload: 1024 * 1024, // 1MB max message size
+    // Railway specific settings
+    backlog: 100, // Maximum length of the queue of pending connections
+    keepAliveTimeout: 60000, // 60 seconds
+    connectTimeout: 10000, // 10 seconds
+    verifyClient: false // We handle verification manually
   });
 
   console.log('WebSocket server created');
@@ -46,7 +51,7 @@ export function setupWebSocket(server: HttpServer) {
       return;
     }
 
-    // Verify origin
+    // Handle CORS
     const origin = request.headers.origin || null;
     const allowedOrigins = [
       'http://localhost:3000',
@@ -67,6 +72,25 @@ export function setupWebSocket(server: HttpServer) {
       return;
     }
 
+    // Set CORS headers for WebSocket
+    if (origin) {
+      const responseHeaders = [
+        'HTTP/1.1 101 Switching Protocols',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Sec-WebSocket-Accept: ${request.headers['sec-websocket-key']}`,
+        `Access-Control-Allow-Origin: ${origin}`,
+        'Access-Control-Allow-Methods: GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers: X-Requested-With,content-type',
+        'Access-Control-Allow-Credentials: true',
+        // Railway specific headers
+        'X-Content-Type-Options: nosniff',
+        'Keep-Alive: timeout=60',
+        'Connection: keep-alive'
+      ];
+      socket.write(responseHeaders.join('\r\n') + '\r\n\r\n');
+    }
+
     try {
       // Complete the WebSocket upgrade
       wss.handleUpgrade(request, socket, head, (ws) => {
@@ -83,21 +107,21 @@ export function setupWebSocket(server: HttpServer) {
   const heartbeat = setInterval(() => {
     console.log(`Heartbeat check - Active connections: ${wss.clients.size}`);
     wss.clients.forEach((ws: WebSocket) => {
-      const docWs = ws as DocumentWebSocket
+      const docWs = ws as DocumentWebSocket;
       if (docWs.isAlive === false) {
         console.log('Terminating inactive connection');
-        ws.terminate()
-        return
+        ws.terminate();
+        return;
       }
-      docWs.isAlive = false
+      docWs.isAlive = false;
       try {
-        ws.ping()
+        ws.ping();
       } catch (error) {
         console.error('Error sending ping:', error);
         ws.terminate();
       }
-    })
-  }, 15000) // 15 seconds
+    });
+  }, 5000); // Reduced to 5 seconds for Railway
 
   wss.on('close', () => {
     console.log('WebSocket server closing');
