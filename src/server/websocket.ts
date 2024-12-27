@@ -53,10 +53,15 @@ export function setupWebSocket(server: HttpServer) {
       'https://localhost:3000',
       'https://documents-production.up.railway.app',
       'https://piehost.com',
-      'http://piehost.com'
+      'http://piehost.com',
+      'https://websocketking.com',
+      'https://www.websocketking.com',
+      'https://postman.com',
+      'https://www.postman.com',
+      null // Allow connections with no origin for testing tools
     ];
     
-    if (!origin || !allowedOrigins.includes(origin)) {
+    if (!allowedOrigins.includes(origin)) {
       console.log('Invalid origin:', origin);
       socket.destroy();
       return;

@@ -1,0 +1,257 @@
+{
+  "info": {
+    "_postman_id": "websocket-collection-id",
+    "name": "Document WebSocket API",
+    "description": "WebSocket endpoints for real-time document collaboration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Document WebSocket Connection",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "wss://documents-production.up.railway.app/ws?token={{authToken}}&documentId={{documentId}}",
+          "protocol": "wss",
+          "host": ["documents-production.up.railway.app"],
+          "path": ["ws"],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{authToken}}"
+            },
+            {
+              "key": "documentId",
+              "value": "{{documentId}}"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Set up environment variables if needed",
+              "if (!pm.environment.get('documentId')) {",
+              "    console.log('Warning: documentId not set in environment');",
+              "}",
+              "if (!pm.environment.get('authToken')) {",
+              "    console.log('Warning: authToken not set in environment');",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Handle WebSocket connection events",
+              "websocket.onopen = () => {",
+              "    console.log('Connected to WebSocket');",
+              "    // Send initial presence message",
+              "    const presence = {",
+              "        type: 'presence',",
+              "        documentId: pm.environment.get('documentId'),",
+              "        userId: pm.environment.get('userId'),",
+              "        data: { status: 'online' }",
+              "    };",
+              "    websocket.send(JSON.stringify(presence));",
+              "};",
+              "",
+              "websocket.onclose = (event) => {",
+              "    console.log('WebSocket closed:', event.code, event.reason);",
+              "};",
+              "",
+              "websocket.onmessage = (event) => {",
+              "    const data = JSON.parse(event.data);",
+              "    console.log('Received message:', data);",
+              "    pm.environment.set('lastMessage', event.data);",
+              "    ",
+              "    if (data.type === 'connected') {",
+              "        console.log('Successfully authenticated');",
+              "        pm.environment.set('connected', true);",
+              "    }",
+              "};",
+              "",
+              "websocket.onerror = (error) => {",
+              "    console.error('WebSocket error:', error);",
+              "};"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "protocolProfileBehavior": {
+        "followRedirects": true,
+        "disableUrlEncoding": false
+      }
+    },
+    {
+      "name": "Document Update Message",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "wss://documents-production.up.railway.app/ws?token={{authToken}}&documentId={{documentId}}",
+          "protocol": "wss",
+          "host": ["documents-production.up.railway.app"],
+          "path": ["ws"],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{authToken}}"
+            },
+            {
+              "key": "documentId",
+              "value": "{{documentId}}"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Example document update message",
+              "const message = {",
+              "    type: 'update',",
+              "    documentId: pm.environment.get('documentId'),",
+              "    userId: pm.environment.get('userId'),",
+              "    data: {",
+              "        content: {",
+              "            type: 'doc',",
+              "            content: [",
+              "                {",
+              "                    type: 'paragraph',",
+              "                    content: [",
+              "                        {",
+              "                            type: 'text',",
+              "                            text: 'Updated content at ' + new Date().toISOString()",
+              "                        }",
+              "                    ]",
+              "                }",
+              "            ]",
+              "        }",
+              "    }",
+              "};",
+              "",
+              "pm.environment.set('updateMessage', JSON.stringify(message));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "websocket.onopen = () => {",
+              "    console.log('Connected to WebSocket');",
+              "    const message = pm.environment.get('updateMessage');",
+              "    if (message) {",
+              "        websocket.send(message);",
+              "        console.log('Sent update message');",
+              "    }",
+              "};"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "protocolProfileBehavior": {
+        "followRedirects": true,
+        "disableUrlEncoding": false
+      }
+    },
+    {
+      "name": "Cursor Update Message",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "wss://documents-production.up.railway.app/ws?token={{authToken}}&documentId={{documentId}}",
+          "protocol": "wss",
+          "host": ["documents-production.up.railway.app"],
+          "path": ["ws"],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{authToken}}"
+            },
+            {
+              "key": "documentId",
+              "value": "{{documentId}}"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Example cursor update message",
+              "const message = {",
+              "    type: 'cursor',",
+              "    documentId: pm.environment.get('documentId'),",
+              "    userId: pm.environment.get('userId'),",
+              "    data: {",
+              "        position: {",
+              "            path: [0, 0],",
+              "            offset: Math.floor(Math.random() * 10) // Random position for testing",
+              "        }",
+              "    }",
+              "};",
+              "",
+              "pm.environment.set('cursorMessage', JSON.stringify(message));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "websocket.onopen = () => {",
+              "    console.log('Connected to WebSocket');",
+              "    const message = pm.environment.get('cursorMessage');",
+              "    if (message) {",
+              "        websocket.send(message);",
+              "        console.log('Sent cursor update');",
+              "    }",
+              "};"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "protocolProfileBehavior": {
+        "followRedirects": true,
+        "disableUrlEncoding": false
+      }
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global pre-request script",
+          "if (!pm.environment.get('userId')) {",
+          "    console.log('Warning: userId not set in environment');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "wss://documents-production.up.railway.app"
+    }
+  ]
+} 
