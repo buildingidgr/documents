@@ -30,14 +30,6 @@ interface DocumentUpdate {
   data: any
 }
 
-interface AuthResponse {
-  status: number
-  body: {
-    isValid: boolean
-    userId: string
-  }
-}
-
 export function setupWebSocket(server: HttpServer) {
   console.log('Setting up WebSocket server...')
 
@@ -138,21 +130,21 @@ async function handleConnection(docWs: DocumentWebSocket, request: IncomingMessa
 
     // Authenticate user
     try {
-      const authResponse = await authenticateUser(token) as AuthResponse
-      console.log('Auth response:', authResponse)
+      const userId = await authenticateUser(token)
+      console.log('Auth userId:', userId)
       
       if (socketClosed) {
         console.log('Socket closed during authentication, aborting setup')
         return
       }
 
-      if (!authResponse?.body?.userId) {
-        console.log('Invalid auth response:', authResponse)
+      if (!userId) {
+        console.log('Invalid auth response - no userId')
         docWs.close(1008, 'Authentication failed')
         return
       }
 
-      docWs.userId = authResponse.body.userId
+      docWs.userId = userId
 
       // Document access check
       if (documentId) {
