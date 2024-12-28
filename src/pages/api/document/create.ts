@@ -67,7 +67,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   user: { connect: { id: user.id } }
                 }
               }
-            },
+            }
+          });
+
+          // Fetch the complete document with all associations
+          const documentWithAssociations = await tx.document.findUnique({
+            where: { id: doc.id },
             include: {
               users: {
                 select: {
@@ -92,7 +97,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           });
 
-          return doc;
+          if (!documentWithAssociations) {
+            throw new Error('Failed to fetch document after creation');
+          }
+
+          return documentWithAssociations;
         },
         {
           maxWait: 5000, // 5s max wait time
