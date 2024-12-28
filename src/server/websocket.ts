@@ -113,16 +113,11 @@ export function setupWebSocket(server: HttpServer) {
       credentials: true,
       allowedHeaders: ['Authorization', 'Content-Type']
     },
-    allowEIO3: true,            // Allow Engine.IO v3 clients
+    allowEIO3: true,
     pingInterval: 15000,
     pingTimeout: 10000,
     connectTimeout: 10000,
-    transports: ['websocket'],
-    allowUpgrades: true,
-    perMessageDeflate: {
-      threshold: 2048           // Size in bytes to start compressing
-    },
-    maxHttpBufferSize: 1e8      // 100 MB
+    transports: ['websocket']
   });
 
   // Add error handling for the server
@@ -133,15 +128,34 @@ export function setupWebSocket(server: HttpServer) {
   // Authentication middleware
   io.use(async (socket: DocumentSocket, next) => {
     try {
-      const token = socket.handshake.auth.token || socket.handshake.query.token;
+      console.log('Authenticating socket connection...', {
+        auth: socket.handshake.auth,
+        headers: socket.handshake.headers
+      });
+
+      const token = socket.handshake.auth.token;
       if (!token) {
         return next(new Error('Authentication required'));
       }
 
-      const userId = await authenticateUser(token as string);
-      socket.userId = userId;
-      next();
+      // Remove 'Bearer ' prefix if present
+      const cleanToken = token.replace('Bearer ', '');
+      
+      try {
+        const userId = await authenticateUser(cleanToken);
+        if (!userId) {
+          return next(new Error('Invalid token'));
+        }
+        
+        socket.userId = userId;
+        console.log('Socket authenticated for user:', userId);
+        next();
+      } catch (error) {
+        console.error('Token validation error:', error);
+        return next(new Error('Authentication failed'));
+      }
     } catch (error) {
+      console.error('Socket authentication error:', error);
       next(new Error('Authentication failed'));
     }
   });

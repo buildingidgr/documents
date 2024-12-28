@@ -45,17 +45,36 @@ export async function validateToken(token: string): Promise<AuthResponse> {
   }
 }
 
-export async function authenticateUser(token: string | undefined): Promise<string> {
-  if (!token) {
-    throw new Error('Authentication token is missing');
+export async function authenticateUser(token: string): Promise<string> {
+  try {
+    console.log('Validating token:', token.substring(0, 20) + '...');
+    
+    // Remove 'Bearer ' prefix if present
+    const cleanToken = token.replace('Bearer ', '');
+    
+    const response = await fetch(process.env.AUTH_SERVICE_URL + '/validate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token: cleanToken }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Token validation failed');
+    }
+
+    const data = await response.json();
+    console.log('Token validation response:', data);
+
+    if (!data.isValid || !data.userId) {
+      throw new Error('Invalid token');
+    }
+
+    return data.userId;
+  } catch (error) {
+    console.error('Token validation error:', error);
+    throw error;
   }
-
-  const authResponse = await validateToken(token);
-
-  if (!authResponse.isValid) {
-    throw new Error('Invalid or expired token');
-  }
-
-  return authResponse.userId;
 }
 
