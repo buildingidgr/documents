@@ -40,12 +40,13 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 // In development, prevent hot-reload from creating new instances
-const prisma = globalForPrisma.prisma ?? prismaClientSingleton()
+export const prisma = globalForPrisma.prisma ?? prismaClientSingleton()
 
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma
 }
 
+// Export both named and default for flexibility
 export { prisma as db }
 export default prisma
 
