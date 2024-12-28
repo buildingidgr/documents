@@ -335,45 +335,50 @@ export function setupWebSocket(server: HttpServer) {
   })
 
   server.on('upgrade', async (request: IncomingMessage, socket, head) => {
-    console.log('Upgrade request received')
-    console.log('Raw request headers:', request.headers)
+    console.log('Upgrade request received');
     
-    const clientIp = getRealIp(request)
-    console.log('Client IP:', clientIp)
-
     socket.on('error', (err) => {
-      console.error('Socket error during upgrade:', err)
-      socket.destroy()
-    })
+      console.error('Socket error during upgrade:', err);
+      socket.destroy();
+    });
 
     try {
-      // Verify it's a WebSocket upgrade
-      const upgrade = request.headers.upgrade?.toLowerCase()
-      console.log('Upgrade header:', upgrade)
-
-      if (upgrade !== 'websocket' || !request.headers['sec-websocket-key']) {
-        console.log('Not a valid WebSocket upgrade request')
-        socket.write('HTTP/1.1 426 Upgrade Required\r\n' +
-                    'Upgrade: websocket\r\n' +
-                    'Connection: Upgrade\r\n' +
-                    'Sec-WebSocket-Version: 13\r\n\r\n')
-        socket.destroy()
-        return
+      // Quick validation first
+      if (!request.headers.upgrade || request.headers.upgrade.toLowerCase() !== 'websocket') {
+        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        socket.destroy();
+        return;
       }
 
-      // Clean path check
-      const { pathname } = parseUrl(request.url || '', true)
-      const normalizedPath = pathname?.toLowerCase()
-      console.log('Requested path:', normalizedPath)
+      // Validate WebSocket version and key immediately
+      const wsKey = request.headers['sec-websocket-key'];
+      const wsVersion = request.headers['sec-websocket-version'];
       
-      if (normalizedPath !== '/ws' && normalizedPath !== '/websocket') {
-        console.log('Invalid path:', normalizedPath)
-        socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
-        socket.destroy()
-        return
+      if (!wsKey || wsVersion !== '13') {
+        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        socket.destroy();
+        return;
       }
 
-      // Set up allowed origins
+      // Parse URL and validate path
+      const { pathname, query } = parseUrl(request.url || '', true);
+      if (pathname !== '/ws' && pathname !== '/websocket') {
+        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      // Validate token
+      const token = query.token as string;
+      if (!token) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      // Clean and validate origin
+      const rawOrigin = request.headers.origin;
+      const origin = cleanOrigin(rawOrigin);
       const allowedOrigins = [
         'http://localhost:3000',
         'https://localhost:3000',
@@ -385,94 +390,117 @@ export function setupWebSocket(server: HttpServer) {
         'https://postman.com',
         'https://www.postman.com',
         null
-      ]
+      ];
 
-      const rawOrigin = request.headers.origin
-      const cleanedOrigin = cleanOrigin(rawOrigin)
-      
-      // Debug origin processing
-      console.log('Origin processing:', {
-        raw: rawOrigin,
-        afterCleaning: cleanedOrigin,
-        allowedList: allowedOrigins,
-        isAllowed: allowedOrigins.includes(cleanedOrigin)
-      })
-
-      if (!allowedOrigins.includes(cleanedOrigin)) {
-        console.log('Origin rejected:', {
-          original: rawOrigin,
-          cleaned: cleanedOrigin,
-          allowedOrigins
-        })
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-        socket.destroy()
-        return
+      if (!allowedOrigins.includes(origin)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
       }
 
-      console.log('Origin accepted:', cleanedOrigin)
-      if (!allowedOrigins.includes(cleanedOrigin)) {
-        console.log('Invalid origin:', { 
-          rawOrigin,
-          cleanedOrigin, 
-          allowedOrigins,
-          matched: allowedOrigins.includes(cleanedOrigin)
-        })
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-        socket.destroy()
-        return
-      }
+      // Generate accept key
+      const acceptKey = generateAcceptKey(wsKey);
 
-      // Extract and validate token
-      const { query } = parseUrl(request.url || '', true)
-      const token = query.token as string
+      // Send upgrade response immediately
+      const headers = [
+        'HTTP/1.1 101 Switching Protocols',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Sec-WebSocket-Accept: ${acceptKey}`,
+        'Sec-WebSocket-Version: 13',
+        origin ? `Access-Control-Allow-Origin: ${origin}` : '',
+        'Access-Control-Allow-Credentials: true',
+        '',
+        ''
+      ].filter(Boolean).join('\r\n');
 
-      if (!token) {
-        console.log('No token provided')
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-        socket.destroy()
-        return
-      }
+      socket.write(headers);
 
-      // Authenticate first
-      const userId = await authenticateUser(token)
-      if (!userId) {
-        console.log('Authentication failed')
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      console.log('Authentication successful for user:', userId)
+      // Complete the upgrade
+      wss.handleUpgrade(request, socket, head, async (ws) => {
+        const docWs = ws as DocumentWebSocket;
+        
+        try {
+          // Authenticate after upgrade
+          const userId = await authenticateUser(token);
+          docWs.userId = userId;
+          docWs.isAlive = true;
 
-// Generate accept key
-const key = request.headers['sec-websocket-key']
-const acceptKey = generateAcceptKey(key!)
+          // Set up heartbeat immediately
+          const pingInterval = setInterval(() => {
+            if (!docWs.isAlive) {
+              clearInterval(pingInterval);
+              return docWs.terminate();
+            }
+            docWs.isAlive = false;
+            try {
+              docWs.ping();
+            } catch (err) {
+              clearInterval(pingInterval);
+              docWs.terminate();
+            }
+          }, 15000);
 
-// Send WebSocket upgrade response
-const upgradeResponse = [
-  'HTTP/1.1 101 Switching Protocols',
-  'Upgrade: websocket',
-  'Connection: Upgrade',
-  `Sec-WebSocket-Accept: ${acceptKey}`,
-  '',
-  ''
-].join('\r\n')
+          // Set up basic handlers
+          docWs.on('pong', () => {
+            docWs.isAlive = true;
+          });
 
-socket.write(upgradeResponse)
+          docWs.on('close', () => {
+            clearInterval(pingInterval);
+          });
 
-// Complete upgrade with authenticated user
-wss.handleUpgrade(request, socket, head, (ws) => {
-  const docWs = ws as DocumentWebSocket
-  docWs.userId = userId
-  console.log('WebSocket connection established for user:', userId)
-  handleConnection(docWs, request, wss)
-})
+          docWs.on('error', (error) => {
+            console.error('WebSocket error:', error);
+            clearInterval(pingInterval);
+          });
 
-} catch (error) {
-console.error('Upgrade/auth error:', error)
-socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
-socket.destroy()
-}
-})
+          // Handle document access and setup
+          const documentId = query.documentId as string;
+          if (documentId) {
+            const document = await db.document.findFirst({
+              where: {
+                id: documentId,
+                users: {
+                  some: {
+                    id: userId
+                  }
+                }
+              }
+            });
 
-return wss
+            if (!document) {
+              docWs.close(1008, 'Document access denied');
+              return;
+            }
+
+            docWs.documentId = documentId;
+          }
+
+          // Send success message
+          const successMessage = JSON.stringify({
+            type: 'connected',
+            userId: userId,
+            documentId: documentId || null
+          });
+          docWs.send(successMessage);
+
+          // Set up message handler
+          setupMessageHandler(docWs, wss);
+
+          // Emit connection event
+          wss.emit('connection', docWs, request);
+        } catch (error) {
+          console.error('Post-upgrade error:', error);
+          docWs.close(1011, 'Authentication failed');
+        }
+      });
+    } catch (error) {
+      console.error('Upgrade error:', error);
+      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+      socket.destroy();
+    }
+  });
+
+  return wss
 }
