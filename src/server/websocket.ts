@@ -132,6 +132,7 @@ export function setupWebSocket(server: HttpServer) {
 
         docWs.on('error', (error) => {
           console.error('WebSocket error:', error)
+          socketClosed = true
         })
 
         docWs.on('close', (code, reason) => {
@@ -151,7 +152,7 @@ export function setupWebSocket(server: HttpServer) {
             return
           }
 
-          const authResult = await authenticateUser(token)
+          const userId = await authenticateUser(token)
           
           // Check if socket was closed during authentication
           if (socketClosed) {
@@ -159,7 +160,7 @@ export function setupWebSocket(server: HttpServer) {
             return
           }
           
-          docWs.userId = authResult.userId
+          docWs.userId = userId
 
           if (documentId) {
             const document = await db.document.findFirst({
