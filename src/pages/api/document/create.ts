@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { db } from '@/server/db';
 import { authenticateUser } from '@/server/auth';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 
 // Plate.js content schema
 const plateContentSchema = z.object({
@@ -105,7 +105,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // Verify user association
-      const hasUserAssociation = documentWithAssociations.users.some(u => u.id === user.id);
+      const hasUserAssociation = documentWithAssociations.users.some((u: User) => u.id === user.id);
       process.stdout.write(`[Document Create] User association check: ${JSON.stringify({
         documentId: doc.id,
         userId: user.id,
@@ -139,7 +139,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (err instanceof z.ZodError) {
       return res.status(400).json({ 
         error: 'Invalid document format',
-        details: err.errors 
+        details: (err as z.ZodError).errors 
       });
     }
     
