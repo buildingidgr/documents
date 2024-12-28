@@ -5,7 +5,7 @@ declare global {
 }
 
 const prismaClientSingleton = () => {
-  return new PrismaClient({
+  const client = new PrismaClient({
     log: [
       {
         emit: 'stdout',
@@ -19,10 +19,37 @@ const prismaClientSingleton = () => {
         emit: 'stdout',
         level: 'warn',
       }
-    ]
-  })
+    ],
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL
+      }
+    }
+  });
+
+  // Handle disconnection
+  client.$connect()
+    .then(() => {
+      console.log('Successfully connected to database');
+    })
+    .catch((err) => {
+      console.error('Failed to connect to database:', err);
+      process.exit(1); // Force container restart on connection failure
+    });
+
+  // Cleanup on shutdown
+  ['SIGINT', 'SIGTERM'].forEach((signal) => {
+    process.on(signal, async () => {
+      console.log(`${signal} received, closing database connection`);
+      await client.$disconnect();
+      process.exit(0);
+    });
+  });
+
+  return client;
 }
 
+// Ensure singleton instance
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
