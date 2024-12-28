@@ -4,7 +4,6 @@ import { authenticateUser } from './auth'
 import { db } from './db'
 import { Prisma } from '@prisma/client'
 import { parse as parseUrl } from 'url'
-import { createHash } from 'crypto'
 
 interface DocumentWebSocket extends WebSocket {
   documentId?: string
@@ -31,12 +30,21 @@ interface DocumentUpdate {
   data: any
 }
 
-function generateAcceptValue(secWebSocketKey: string): string {
-  const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
-  const combined = secWebSocketKey + GUID
-  const sha1 = createHash('sha1')
-  sha1.update(combined)
-  return sha1.digest('base64')
+function getRealIp(request: IncomingMessage): string {
+  return (
+    request.headers['x-real-ip'] as string ||
+    request.headers['x-forwarded-for'] as string ||
+    request.socket.remoteAddress ||
+    ''
+  )
+}
+
+function isWebSocketUpgrade(request: IncomingMessage): boolean {
+  return (
+    request.headers.upgrade?.toLowerCase() === 'websocket' &&
+    !!request.headers['sec-websocket-key'] &&
+    !!request.headers['sec-websocket-version']
+  )
 }
 
 export function setupWebSocket(server: HttpServer) {
@@ -63,10 +71,34 @@ export function setupWebSocket(server: HttpServer) {
     maxPayload: 1024 * 1024 // 1MB max message size
   })
 
-  // Handle upgrade requests
+  // Set up server-wide heartbeat checking
+  const heartbeat = setInterval(() => {
+    wss.clients.forEach((ws: WebSocket) => {
+      const docWs = ws as DocumentWebSocket
+      if (!docWs.isAlive) {
+        console.log('Terminating inactive connection')
+        return ws.terminate()
+      }
+      docWs.isAlive = false
+      try {
+        ws.ping()
+      } catch (err) {
+        console.error('Ping error:', err)
+        ws.terminate()
+      }
+    })
+  }, 30000)
+
+  wss.on('close', () => {
+    clearInterval(heartbeat)
+  })
+
   server.on('upgrade', async (request: IncomingMessage, socket, head) => {
     console.log('Upgrade request received')
     console.log('Request headers:', request.headers)
+    
+    const clientIp = getRealIp(request)
+    console.log('Client IP:', clientIp)
 
     socket.on('error', (err) => {
       console.error('Socket error during upgrade:', err)
@@ -74,6 +106,14 @@ export function setupWebSocket(server: HttpServer) {
     })
 
     try {
+      // Verify it's a WebSocket upgrade
+      if (!isWebSocketUpgrade(request)) {
+        console.log('Not a WebSocket upgrade request')
+        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
       // Clean path check
       const { pathname } = parseUrl(request.url || '', true)
       const normalizedPath = pathname?.toLowerCase()
@@ -82,47 +122,6 @@ export function setupWebSocket(server: HttpServer) {
       if (normalizedPath !== '/ws' && normalizedPath !== '/websocket') {
         console.log('Invalid path:', normalizedPath)
         socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
-        socket.destroy()
-        return
-      }
-
-      // Validate WebSocket version
-      const version = request.headers['sec-websocket-version']
-      if (version !== '13') {
-        socket.write('HTTP/1.1 400 Bad Request\r\nSec-WebSocket-Version: 13\r\n\r\n')
-        socket.destroy()
-        return
-      }
-
-      // Validate WebSocket key
-      const key = request.headers['sec-websocket-key']
-      if (!key) {
-        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
-        socket.destroy()
-        return
-      }
-
-      // Clean origin check
-      const rawOrigin = request.headers.origin
-      const cleanOrigin = rawOrigin?.replace(/[;,]$/, '') || null
-      console.log('Clean origin:', cleanOrigin)
-
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'https://localhost:3000',
-        'https://documents-production.up.railway.app',
-        'https://piehost.com',
-        'http://piehost.com',
-        'https://websocketking.com',
-        'https://www.websocketking.com',
-        'https://postman.com',
-        'https://www.postman.com',
-        null
-      ]
-
-      if (!allowedOrigins.includes(cleanOrigin)) {
-        console.log('Invalid origin:', cleanOrigin)
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
         socket.destroy()
         return
       }
@@ -147,20 +146,6 @@ export function setupWebSocket(server: HttpServer) {
         return
       }
       console.log('Authentication successful for user:', userId)
-
-      // Write upgrade headers
-      const acceptValue = generateAcceptValue(key)
-      const headers = [
-        'HTTP/1.1 101 Switching Protocols',
-        'Upgrade: websocket',
-        'Connection: Upgrade',
-        `Sec-WebSocket-Accept: ${acceptValue}`,
-        '',
-        ''
-      ].join('\r\n')
-
-      // Write the response headers to the socket
-      socket.write(headers)
 
       // Complete upgrade with authenticated user
       wss.handleUpgrade(request, socket, head, (ws) => {
@@ -242,6 +227,7 @@ async function handleConnection(docWs: DocumentWebSocket, request: IncomingMessa
       }
 
       docWs.documentId = documentId
+      console.log('Document access granted for document:', documentId)
     }
 
     // Send success message immediately if socket is still open
@@ -274,8 +260,10 @@ function setupMessageHandler(docWs: DocumentWebSocket, wss: WebSocketServer) {
   docWs.on('message', async (message: RawData) => {
     try {
       const data: DocumentUpdate = JSON.parse(message.toString())
+      console.log('Received message of type:', data.type)
 
       if (docWs.documentId && data.documentId !== docWs.documentId) {
+        console.log('Document ID mismatch:', { expected: docWs.documentId, received: data.documentId })
         docWs.send(JSON.stringify({ error: 'Document ID mismatch' }))
         return
       }
@@ -291,6 +279,7 @@ function setupMessageHandler(docWs: DocumentWebSocket, wss: WebSocketServer) {
           await handlePresenceUpdate(docWs, data, wss)
           break
         default:
+          console.log('Unknown message type:', data.type)
           docWs.send(JSON.stringify({ error: 'Unknown message type' }))
       }
     } catch (error) {
@@ -319,6 +308,7 @@ async function handleDocumentUpdate(
     })
 
     if (!document) {
+      console.log('Document update access denied:', data.documentId)
       ws.send(JSON.stringify({ error: 'Document access denied' }))
       return
     }
@@ -338,6 +328,8 @@ async function handleDocumentUpdate(
         }
       }
     })
+
+    console.log('Document updated successfully:', data.documentId)
 
     // Broadcast update to other clients
     broadcastToDocument(wss, data.documentId, {
@@ -395,6 +387,7 @@ function broadcastToDocument(
   excludeWs?: WebSocket
 ) {
   try {
+    let broadcastCount = 0
     wss.clients.forEach((client: WebSocket) => {
       const docClient = client as DocumentWebSocket
       if (
@@ -404,11 +397,13 @@ function broadcastToDocument(
       ) {
         try {
           client.send(JSON.stringify(data))
+          broadcastCount++
         } catch (error) {
           console.error('Failed to send to a client:', error)
         }
       }
     })
+    console.log(`Broadcast complete: ${broadcastCount} clients received the update`)
   } catch (error) {
     console.error('Broadcast error:', error)
   }

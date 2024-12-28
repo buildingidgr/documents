@@ -8,8 +8,6 @@ healthcheckPath = "/api/healthcheck"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
 numReplicas = 1
-healthcheckInterval = 30
-maxHealthcheckRetries = 3
 
 [deploy.websocket]
 enabled = true
@@ -18,11 +16,11 @@ timeout = 300
 keepAlive = true
 maxConnections = 1000
 idleTimeout = 120
-proxyProtocol = true
-pingInterval = 30
-pingTimeout = 10
-handshakeTimeout = 60
-maxMessageSize = "1MB"
+proxyProtocol = false
+forwardedHeaderFields = ["Upgrade", "Connection", "Sec-WebSocket-Key", "Sec-WebSocket-Version", "Sec-WebSocket-Extensions"]
+streamProxy = true
+handleUpgrade = true
+enableWebsocket = true
 
 [metrics]
 enabled = true
@@ -31,9 +29,17 @@ path = "/metrics"
 [deploy.env]
 NODE_ENV = "production"
 TZ = "UTC"
+RAILWAY_WEBSOCKET_PROXY = "true"
 
 [service]
-internal_port = 3000
+internal_port = 8080
 auto_stop_machines = false
 auto_start_machines = true
 min_machines_running = 1
+
+[[headers]]
+path = ["/ws", "/websocket"]
+  [headers.values]
+  Connection = ["Upgrade"]
+  Upgrade = ["websocket"]
+  Sec-WebSocket-Version = ["13"]
