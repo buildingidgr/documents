@@ -39,75 +39,102 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     process.stdout.write(`[Document Create] Validated input: ${JSON.stringify(validatedInput)}\n`);
 
     try {
-      // Wrap all database operations in a single transaction
-      const result = await db.$transaction(async (tx) => {
-        // Ensure user exists in database
-        process.stdout.write(`[Document Create] Creating/updating user: ${userId}\n`);
-        const user = await tx.user.upsert({
-          where: { id: userId },
-          update: {},
-          create: {
-            id: userId,
-            name: null,
-          },
-        });
-        process.stdout.write(`[Document Create] User operation result: ${JSON.stringify(user)}\n`);
+      // Wrap all database operations in a single transaction with retries
+      const result = await db.$transaction(
+        async (tx) => {
+          // Ensure user exists in database
+          process.stdout.write(`[Document Create] Creating/updating user: ${userId}\n`);
+          const user = await tx.user.upsert({
+            where: { id: userId },
+            update: {},
+            create: {
+              id: userId,
+              name: null,
+            },
+          });
 
-        // Create document with associations
-        process.stdout.write(`[Document Create] Creating document for user: ${user.id}\n`);
-        const doc = await tx.document.create({
-          data: {
-            title: validatedInput.title,
-            content: validatedInput.content as Prisma.InputJsonValue,
-            users: {
-              connect: { id: user.id }
-            },
-            versions: {
-              create: {
-                content: validatedInput.content as Prisma.InputJsonValue,
-                user: { connect: { id: user.id } }
-              }
-            }
-          },
-          include: {
-            users: {
-              select: {
-                id: true,
-                name: true
+          // Create document with associations
+          const doc = await tx.document.create({
+            data: {
+              title: validatedInput.title,
+              content: validatedInput.content as Prisma.InputJsonValue,
+              users: {
+                connect: { id: user.id }
+              },
+              versions: {
+                create: {
+                  content: validatedInput.content as Prisma.InputJsonValue,
+                  user: { connect: { id: user.id } }
+                }
               }
             },
-            versions: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    name: true
-                  }
+            include: {
+              users: {
+                select: {
+                  id: true,
+                  name: true
                 }
               },
-              orderBy: {
-                createdAt: 'desc'
-              },
-              take: 1
+              versions: {
+                include: {
+                  user: {
+                    select: {
+                      id: true,
+                      name: true
+                    }
+                  }
+                },
+                orderBy: {
+                  createdAt: 'desc'
+                },
+                take: 1
+              }
             }
-          }
-        });
-        process.stdout.write(`[Document Create] Document created with associations: ${JSON.stringify(doc)}\n`);
+          });
 
-        return doc;
-      }, {
-        maxWait: 5000, // 5s max wait time
-        timeout: 10000 // 10s timeout
-      });
+          return doc;
+        },
+        {
+          maxWait: 5000, // 5s max wait time
+          timeout: 10000, // 10s timeout
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable // Ensure consistency
+        }
+      );
 
       if (!result.users.some((u: User) => u.id === userId)) {
-        process.stderr.write(`[Document Create] Error: User association missing after transaction\n`);
         throw new Error('Failed to create user association');
       }
 
       return res.status(200).json(result);
     } catch (dbError) {
-      process.stderr.write(`[Document Create] Database operation error: ${JSON.stringify(dbError)}\n`);
+      if (dbError instanceof Prisma.PrismaClientKnownRequestError) {
+        // Handle specific Prisma errors
+        switch (dbError.code) {
+          case 'P2002':
+            return res.status(409).json({ error: 'Document already exists' });
+          case 'P2025':
+            return res.status(404).json({ error: 'User not found' });
+          case 'P2034':
+            // Transaction timed out, suggest retry
+            return res.status(503).json({ 
+              error: 'Transaction timed out, please try again',
+              retryAfter: 1
+            });
+          default:
+            process.stderr.write(`[Document Create] Database error: ${dbError.message}\n`);
+            return res.status(500).json({ error: 'Database operation failed' });
+        }
+      }
+      
+      // For connection errors, suggest retry
+      if (dbError instanceof Prisma.PrismaClientRustPanicError || 
+          dbError instanceof Prisma.PrismaClientInitializationError) {
+        return res.status(503).json({ 
+          error: 'Service temporarily unavailable, please try again',
+          retryAfter: 2
+        });
+      }
+
       throw dbError;
     }
   } catch (err: unknown) {
