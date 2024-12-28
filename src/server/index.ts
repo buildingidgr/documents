@@ -1,9 +1,17 @@
 import { createServer } from 'http';
+import express from 'express';
 import { setupWebSocket } from './websocket';
 
-const server = createServer();
+const app = express();
+const server = createServer(app);
 const io = setupWebSocket(server);
 
+// Add health check endpoint
+app.get('/api/healthcheck', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// Handle WebSocket upgrade
 server.on('upgrade', (request, socket, head) => {
   console.log('Upgrade request received');
   
@@ -21,6 +29,20 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
-server.listen(process.env.PORT || 8080, () => {
-  console.log(`Server listening on port ${process.env.PORT || 8080}`);
+// Add error handlers
+server.on('error', (error) => {
+  console.error('Server error:', error);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled rejection:', error);
+});
+
+const port = process.env.PORT || 8080;
+server.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
 }); 

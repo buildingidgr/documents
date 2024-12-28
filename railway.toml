@@ -5,7 +5,8 @@ buildCommand = "npm install --production=false && npm run build"
 [deploy]
 startCommand = "npm run db:deploy && npm start"
 healthcheckPath = "/api/healthcheck"
-healthcheckTimeout = 100
+healthcheckTimeout = 180
+healthcheckInterval = 10
 restartPolicyType = "on_failure"
 numReplicas = 1
 
