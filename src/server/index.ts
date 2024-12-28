@@ -1,5 +1,5 @@
 import { createServer } from 'http';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { setupWebSocket } from './websocket';
 
 const app = express();
@@ -7,7 +7,7 @@ const server = createServer(app);
 const io = setupWebSocket(server);
 
 // Add CORS middleware
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
