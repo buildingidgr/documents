@@ -18,24 +18,23 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
-    // Handle CORS for WebSocket upgrade requests
+    // Set CORS headers for all requests
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    // Handle WebSocket upgrade requests
     if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
-      const origin = req.headers.origin;
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'https://localhost:3000',
-        'https://documents-production.up.railway.app',
-        'https://piehost.com',
-        'http://piehost.com'
-      ];
-
-      if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type');
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
-      }
-
+      res.setHeader('Connection', 'upgrade');
+      res.setHeader('Upgrade', 'websocket');
+      res.setHeader('Sec-WebSocket-Version', '13');
       return;
     }
 
@@ -45,6 +44,10 @@ app.prepare().then(() => {
 
   // Set up WebSocket server
   setupWebSocket(server);
+
+  // Enable keep-alive
+  server.keepAliveTimeout = 120000; // 2 minutes
+  server.headersTimeout = 120000; // 2 minutes
 
   const port = process.env.PORT || 3000;
   server.listen(port, () => {

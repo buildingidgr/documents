@@ -316,8 +316,8 @@ export function setupWebSocket(server: HttpServer) {
   const wss = new WebSocketServer({
     noServer: true,
     clientTracking: true,
-    perMessageDeflate: false, // Disable compression for simpler setup
-    maxPayload: 1024 * 1024 // 1MB max message size
+    perMessageDeflate: false,
+    maxPayload: 1024 * 1024
   });
 
   // Handle connection errors at the server level
@@ -328,24 +328,28 @@ export function setupWebSocket(server: HttpServer) {
   server.on('upgrade', async (request: IncomingMessage, socket, head) => {
     console.log('Upgrade request received');
 
-    // Handle socket errors
     socket.on('error', (error) => {
       console.error('Socket error:', error);
+      try {
+        socket.end('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+      } catch (e) {
+        // Ignore error if socket is already destroyed
+      }
       socket.destroy();
     });
 
     try {
-      // Basic validation
-      if (request.headers.upgrade?.toLowerCase() !== 'websocket') {
-        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+      // Validate WebSocket request
+      if (!request.headers['sec-websocket-key']) {
+        socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
         socket.destroy();
         return;
       }
 
-      // Parse URL
+      // Parse URL and validate path
       const { pathname, query } = parseUrl(request.url || '', true);
       if (pathname !== '/ws' && pathname !== '/websocket') {
-        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+        socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
         socket.destroy();
         return;
       }
@@ -353,19 +357,19 @@ export function setupWebSocket(server: HttpServer) {
       // Get token
       const token = query.token as string;
       if (!token) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
 
-      // Authenticate user before upgrade
+      // Authenticate user
       let userId: string;
       try {
         userId = await authenticateUser(token);
         console.log('User authenticated:', userId);
       } catch (error) {
         console.error('Authentication failed:', error);
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
@@ -379,7 +383,6 @@ export function setupWebSocket(server: HttpServer) {
         // Set up ping interval
         const pingInterval = setInterval(() => {
           if (!docWs.isAlive) {
-            console.log('Connection dead, terminating');
             clearInterval(pingInterval);
             return docWs.terminate();
           }
@@ -387,19 +390,18 @@ export function setupWebSocket(server: HttpServer) {
           try {
             docWs.ping();
           } catch (err) {
-            console.error('Ping error:', err);
             clearInterval(pingInterval);
             docWs.terminate();
           }
-        }, 30000);
+        }, 15000); // 15 second ping interval
 
         // Set up handlers
         docWs.on('pong', () => {
           docWs.isAlive = true;
         });
 
-        docWs.on('close', () => {
-          console.log('Connection closed');
+        docWs.on('close', (code, reason) => {
+          console.log('Connection closed:', { code, reason: reason.toString() });
           clearInterval(pingInterval);
         });
 
@@ -408,7 +410,7 @@ export function setupWebSocket(server: HttpServer) {
           clearInterval(pingInterval);
         });
 
-        // Handle document setup after connection is established
+        // Handle document setup
         (async () => {
           try {
             const documentId = query.documentId as string;
@@ -433,12 +435,11 @@ export function setupWebSocket(server: HttpServer) {
             }
 
             // Send success message
-            const successMessage = JSON.stringify({
+            docWs.send(JSON.stringify({
               type: 'connected',
               userId: userId,
               documentId: documentId || null
-            });
-            docWs.send(successMessage);
+            }));
 
             // Set up message handler
             setupMessageHandler(docWs, wss);
@@ -453,7 +454,11 @@ export function setupWebSocket(server: HttpServer) {
       });
     } catch (error) {
       console.error('Upgrade error:', error);
-      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+      try {
+        socket.end('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+      } catch (e) {
+        // Ignore error if socket is already destroyed
+      }
       socket.destroy();
     }
   });

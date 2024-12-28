@@ -9,14 +9,6 @@ healthcheckTimeout = 100
 restartPolicyType = "on_failure"
 numReplicas = 1
 
-[deploy.websocket]
-enabled = true
-paths = ["/ws", "/websocket"]
-timeout = 300
-keepAlive = true
-maxConnections = 1000
-idleTimeout = 120
-
 [service]
 internal_port = 8080
 protocol = "http"
@@ -27,6 +19,11 @@ min_machines_running = 1
 [service.http]
 force_https = true
 keepalive_timeout = 120
+proxy_connect_timeout = 5
+proxy_read_timeout = 120
+proxy_send_timeout = 120
 
-[service.ports]
-websocket = { handlers = ["http", "websocket"], port = 8080 }
+[[service.ports]]
+port = 8080
+handlers = ["http", "websocket"]
+force_https = true
