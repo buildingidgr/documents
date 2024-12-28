@@ -45,7 +45,14 @@ export async function validateToken(token: string): Promise<AuthResponse> {
   }
 }
 
-export async function authenticateUser(token: string): Promise<string> {
+export async function authenticateUser(token?: string): Promise<string> {
+  if (!token) {
+    throw new TRPCError({
+      code: 'UNAUTHORIZED',
+      message: 'No authorization token provided',
+    });
+  }
+
   try {
     console.log('Validating token:', token.substring(0, 20) + '...');
     
@@ -61,20 +68,32 @@ export async function authenticateUser(token: string): Promise<string> {
     });
 
     if (!response.ok) {
-      throw new Error('Token validation failed');
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Token validation failed',
+      });
     }
 
     const data = await response.json();
     console.log('Token validation response:', data);
 
     if (!data.isValid || !data.userId) {
-      throw new Error('Invalid token');
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Invalid token',
+      });
     }
 
     return data.userId;
   } catch (error) {
     console.error('Token validation error:', error);
-    throw error;
+    if (error instanceof TRPCError) {
+      throw error;
+    }
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Authentication failed',
+    });
   }
 }
 
