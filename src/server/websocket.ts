@@ -398,23 +398,11 @@ export function setupWebSocket(server: HttpServer) {
         return;
       }
 
-      // Generate accept key
-      const acceptKey = generateAcceptKey(wsKey);
-
-      // Send upgrade response immediately
-      const headers = [
-        'HTTP/1.1 101 Switching Protocols',
-        'Upgrade: websocket',
-        'Connection: Upgrade',
-        `Sec-WebSocket-Accept: ${acceptKey}`,
-        'Sec-WebSocket-Version: 13',
-        origin ? `Access-Control-Allow-Origin: ${origin}` : '',
-        'Access-Control-Allow-Credentials: true',
-        '',
-        ''
-      ].filter(Boolean).join('\r\n');
-
-      socket.write(headers);
+      // Add CORS headers to the request
+      if (origin) {
+        request.headers['access-control-allow-origin'] = origin;
+        request.headers['access-control-allow-credentials'] = 'true';
+      }
 
       // Complete the upgrade
       wss.handleUpgrade(request, socket, head, async (ws) => {

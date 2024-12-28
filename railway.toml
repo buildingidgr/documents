@@ -17,13 +17,14 @@ timeout = 300
 keepAlive = true
 maxConnections = 1000
 idleTimeout = 120
-handshakeTimeout = 10
+handshakeTimeout = 5
 closeTimeout = 30
-upgradeTimeout = 10
+upgradeTimeout = 5
 
 [deploy.websocket.headers]
-Connection = ["upgrade"]
+Connection = ["Upgrade"]
 Upgrade = ["websocket"]
+Sec-WebSocket-Version = ["13"]
 
 [service]
 internal_port = 8080
@@ -36,9 +37,9 @@ min_machines_running = 1
 force_https = true
 keepalive_timeout = 120
 proxy_request_timeout = 60
-proxy_connect_timeout = 10
+proxy_connect_timeout = 5
 proxy_send_timeout = 60
 proxy_read_timeout = 60
 
 [service.ports]
-websocket = { handlers = ["http", "websocket"], port = 8080 }
+websocket = { handlers = ["http", "websocket"], port = 8080, proxy_protocol = true }
