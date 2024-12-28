@@ -11,35 +11,29 @@ numReplicas = 1
 
 [deploy.websocket]
 enabled = true
-path = ["/ws", "/websocket"]
+paths = ["/ws", "/websocket"]
+healthcheckPath = "/api/ws-health"
 timeout = 300
 keepAlive = true
 maxConnections = 1000
 idleTimeout = 120
-proxyProtocol = false
-forwardedHeaderFields = ["Upgrade", "Connection", "Sec-WebSocket-Key", "Sec-WebSocket-Version", "Sec-WebSocket-Extensions"]
-streamProxy = true
-handleUpgrade = true
-enableWebsocket = true
+handshakeTimeout = 60
+closeTimeout = 30
+upgradeTimeout = 60
 
-[metrics]
-enabled = true
-path = "/metrics"
-
-[deploy.env]
-NODE_ENV = "production"
-TZ = "UTC"
-RAILWAY_WEBSOCKET_PROXY = "true"
+[deploy.websocket.headers]
+Connection = ["upgrade"]
+Upgrade = ["websocket"]
 
 [service]
 internal_port = 8080
+protocol = "http"
 auto_stop_machines = false
 auto_start_machines = true
 min_machines_running = 1
 
-[[headers]]
-path = ["/ws", "/websocket"]
-  [headers.values]
-  Connection = ["Upgrade"]
-  Upgrade = ["websocket"]
-  Sec-WebSocket-Version = ["13"]
+[service.http]
+force_https = true
+
+[service.ports]
+websocket = { handlers = ["http", "websocket"], port = 8080 }
