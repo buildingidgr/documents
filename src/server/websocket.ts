@@ -30,6 +30,14 @@ interface DocumentUpdate {
   data: any
 }
 
+interface AuthResponse {
+  status: number
+  body: {
+    isValid: boolean
+    userId: string
+  }
+}
+
 export function setupWebSocket(server: HttpServer) {
   console.log('Setting up WebSocket server...')
 
@@ -54,188 +62,21 @@ export function setupWebSocket(server: HttpServer) {
     maxPayload: 1024 * 1024 // 1MB max message size
   })
 
-  // Set up server-wide heartbeat checking
-  const heartbeat = setInterval(() => {
-    wss.clients.forEach((ws: WebSocket) => {
-      const docWs = ws as DocumentWebSocket
-      if (!docWs.isAlive) {
-        console.log('Terminating inactive connection')
-        return ws.terminate()
-      }
-      docWs.isAlive = false
-      try {
-        ws.ping()
-      } catch (err) {
-        console.error('Ping error:', err)
-        ws.terminate()
-      }
-    })
-  }, 30000)
-
-  wss.on('close', () => {
-    clearInterval(heartbeat)
-  })
-
   // Handle upgrade requests
   server.on('upgrade', async (request: IncomingMessage, socket, head) => {
     console.log('Upgrade request received')
+    console.log('Request headers:', request.headers)
 
-    // Add error handler for the socket
     socket.on('error', (err) => {
       console.error('Socket error during upgrade:', err)
       socket.destroy()
     })
 
     try {
-      // Quick validation of path and origin
-      const { pathname } = parseUrl(request.url || '', true)
-      if (pathname !== '/ws' && pathname !== '/websocket') {
-        console.log('Invalid path:', pathname)
-        socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
-        socket.destroy()
-        return
-      }
-
-      const origin = request.headers.origin || null
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'https://localhost:3000',
-        'https://documents-production.up.railway.app',
-        'https://piehost.com',
-        'http://piehost.com',
-        'https://websocketking.com',
-        'https://www.websocketking.com',
-        'https://postman.com',
-        'https://www.postman.com',
-        null
-      ]
-
-      if (!allowedOrigins.includes(origin)) {
-        console.log('Invalid origin:', origin)
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-        socket.destroy()
-        return
-      }
-
-      // Complete upgrade immediately
-      wss.handleUpgrade(request, socket, head, async (ws) => {
+      // Complete upgrade first before any async operations
+      wss.handleUpgrade(request, socket, head, (ws) => {
         const docWs = ws as DocumentWebSocket
-        docWs.isAlive = true
-        
-        // Track socket state
-        let socketClosed = false
-
-        // Set up basic handlers
-        docWs.on('pong', () => {
-          docWs.isAlive = true
-        })
-
-        docWs.on('error', (error) => {
-          console.error('WebSocket error:', error)
-          socketClosed = true
-        })
-
-        docWs.on('close', (code, reason) => {
-          console.log(`Connection closed with code ${code}:`, reason.toString())
-          socketClosed = true
-        })
-
-        // Now authenticate after upgrade
-        try {
-          const { query } = parseUrl(request.url || '', true)
-          const token = query.token as string
-          const documentId = query.documentId as string
-
-          if (!token) {
-            console.log('No token provided')
-            docWs.close(1008, 'Authentication required')
-            return
-          }
-
-          const userId = await authenticateUser(token)
-          
-          // Check if socket was closed during authentication
-          if (socketClosed) {
-            console.log('Socket closed during authentication, aborting setup')
-            return
-          }
-          
-          docWs.userId = userId
-
-          if (documentId) {
-            const document = await db.document.findFirst({
-              where: {
-                id: documentId,
-                users: {
-                  some: {
-                    id: docWs.userId
-                  }
-                }
-              }
-            })
-
-            if (!document) {
-              console.log('Document access denied:', documentId)
-              docWs.close(1008, 'Document access denied')
-              return
-            }
-
-            docWs.documentId = documentId
-          }
-
-          // Send success message if socket is still open
-          if (!socketClosed && docWs.readyState === WebSocket.OPEN) {
-            const successMessage = JSON.stringify({
-              type: 'connected',
-              userId: docWs.userId,
-              documentId: documentId || null
-            })
-            try {
-              docWs.send(successMessage)
-            } catch (error) {
-              console.log('Failed to send success message:', error)
-              return
-            }
-          } else {
-            console.log('Socket closed or not open, cannot send success message')
-            return
-          }
-
-          // Set up message handler
-          docWs.on('message', async (message: RawData) => {
-            try {
-              const data: DocumentUpdate = JSON.parse(message.toString())
-
-              if (docWs.documentId && data.documentId !== docWs.documentId) {
-                docWs.send(JSON.stringify({ error: 'Document ID mismatch' }))
-                return
-              }
-
-              switch (data.type) {
-                case 'update':
-                  await handleDocumentUpdate(docWs, data, wss)
-                  break
-                case 'cursor':
-                  await handleCursorUpdate(docWs, data, wss)
-                  break
-                case 'presence':
-                  await handlePresenceUpdate(docWs, data, wss)
-                  break
-                default:
-                  docWs.send(JSON.stringify({ error: 'Unknown message type' }))
-              }
-            } catch (error) {
-              console.error('Message handling error:', error)
-              docWs.send(JSON.stringify({ error: 'Invalid message format' }))
-            }
-          })
-
-          // Emit connection event
-          wss.emit('connection', docWs, request)
-        } catch (error) {
-          console.error('Authentication error:', error)
-          docWs.close(1008, 'Authentication failed')
-        }
+        handleConnection(docWs, request, wss)
       })
     } catch (error) {
       console.error('Upgrade error:', error)
@@ -245,6 +86,153 @@ export function setupWebSocket(server: HttpServer) {
   })
 
   return wss
+}
+
+async function handleConnection(docWs: DocumentWebSocket, request: IncomingMessage, wss: WebSocketServer) {
+  let socketClosed = false
+  docWs.isAlive = true
+
+  // Set up heartbeat
+  const pingInterval = setInterval(() => {
+    if (!docWs.isAlive) {
+      console.log('Connection dead, terminating')
+      clearInterval(pingInterval)
+      return docWs.terminate()
+    }
+    docWs.isAlive = false
+    try {
+      docWs.ping()
+    } catch (err) {
+      console.error('Ping error:', err)
+      clearInterval(pingInterval)
+      docWs.terminate()
+    }
+  }, 30000)
+
+  // Set up basic handlers
+  docWs.on('pong', () => {
+    docWs.isAlive = true
+  })
+
+  docWs.on('error', (error) => {
+    console.error('WebSocket error:', error)
+    socketClosed = true
+  })
+
+  docWs.on('close', (code, reason) => {
+    console.log(`Connection closed with code ${code}:`, reason.toString())
+    socketClosed = true
+    clearInterval(pingInterval)
+  })
+
+  try {
+    const { query } = parseUrl(request.url || '', true)
+    const token = query.token as string
+    const documentId = query.documentId as string
+
+    if (!token) {
+      console.log('No token provided')
+      docWs.close(1008, 'Authentication required')
+      return
+    }
+
+    // Authenticate user
+    try {
+      const authResponse = await authenticateUser(token) as AuthResponse
+      console.log('Auth response:', authResponse)
+      
+      if (socketClosed) {
+        console.log('Socket closed during authentication, aborting setup')
+        return
+      }
+
+      if (!authResponse?.body?.userId) {
+        console.log('Invalid auth response:', authResponse)
+        docWs.close(1008, 'Authentication failed')
+        return
+      }
+
+      docWs.userId = authResponse.body.userId
+
+      // Document access check
+      if (documentId) {
+        const document = await db.document.findFirst({
+          where: {
+            id: documentId,
+            users: {
+              some: {
+                id: docWs.userId
+              }
+            }
+          }
+        })
+
+        if (!document) {
+          console.log('Document access denied:', documentId)
+          docWs.close(1008, 'Document access denied')
+          return
+        }
+
+        docWs.documentId = documentId
+      }
+
+      // Send success message
+      if (!socketClosed && docWs.readyState === WebSocket.OPEN) {
+        const successMessage = JSON.stringify({
+          type: 'connected',
+          userId: docWs.userId,
+          documentId: documentId || null
+        })
+        
+        try {
+          docWs.send(successMessage)
+        } catch (error) {
+          console.log('Failed to send success message:', error)
+          return
+        }
+      }
+
+      // Set up message handler
+      setupMessageHandler(docWs, wss)
+
+    } catch (error) {
+      console.error('Authentication error:', error)
+      docWs.close(1008, 'Authentication failed')
+    }
+  } catch (error) {
+    console.error('Connection handling error:', error)
+    docWs.close(1011, 'Internal server error')
+  }
+}
+
+function setupMessageHandler(docWs: DocumentWebSocket, wss: WebSocketServer) {
+  docWs.on('message', async (message: RawData) => {
+    try {
+      const data: DocumentUpdate = JSON.parse(message.toString())
+
+      if (docWs.documentId && data.documentId !== docWs.documentId) {
+        docWs.send(JSON.stringify({ error: 'Document ID mismatch' }))
+        return
+      }
+
+      switch (data.type) {
+        case 'update':
+          await handleDocumentUpdate(docWs, data, wss)
+          break
+        case 'cursor':
+          await handleCursorUpdate(docWs, data, wss)
+          break
+        case 'presence':
+          await handlePresenceUpdate(docWs, data, wss)
+          break
+        default:
+          docWs.send(JSON.stringify({ error: 'Unknown message type' }))
+      }
+    } catch (error) {
+      console.error('Message handling error:', error)
+      docWs.send(JSON.stringify({ error: 'Invalid message format' }))
+    }
+  })
 }
 
 async function handleDocumentUpdate(
