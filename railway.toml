@@ -27,3 +27,9 @@ proxy_send_timeout = 120
 port = 8080
 handlers = ["http", "websocket"]
 force_https = true
+
+[service.websocket]
+path = "/ws"
+ping_interval = 15000
+ping_timeout = 10000
+client_tracking = true
