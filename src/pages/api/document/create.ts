@@ -62,26 +62,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           },
         },
       },
-      // Include relationships in response
       include: {
-        users: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+        users: true,
         versions: {
           orderBy: {
             createdAt: 'desc',
           },
           take: 1,
-          select: {
-            id: true,
-            content: true,
-            createdAt: true,
-          },
-        },
-      },
+          include: {
+            user: true
+          }
+        }
+      }
     });
 
     return res.status(200).json(newDocument);
