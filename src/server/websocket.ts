@@ -15,13 +15,15 @@ interface DocumentWebSocket extends WebSocket {
   // 2 - CLOSING
   // 3 - CLOSED
   readyState: 0 | 1 | 2 | 3
-  on(event: 'close', listener: (code: number, reason: Buffer) => void): this
-  on(event: 'error', listener: (error: Error) => void): this
-  on(event: 'message', listener: (data: RawData) => void): this
-  on(event: 'open', listener: () => void): this
-  on(event: 'ping', listener: (data: Buffer) => void): this
-  on(event: 'pong', listener: (data: Buffer) => void): this
-  on(event: 'unexpected-response', listener: (request: IncomingMessage, response: IncomingMessage) => void): this
+  on(event: 'close', listener: (this: WebSocket, code: number, reason: Buffer) => void): this
+  on(event: 'error', listener: (this: WebSocket, err: Error) => void): this
+  on(event: 'upgrade', listener: (this: WebSocket, request: IncomingMessage) => void): this
+  on(event: 'message', listener: (this: WebSocket, data: RawData) => void): this
+  on(event: 'open', listener: (this: WebSocket) => void): this
+  on(event: 'ping', listener: (this: WebSocket, data: Buffer) => void): this
+  on(event: 'pong', listener: (this: WebSocket, data: Buffer) => void): this
+  on(event: 'unexpected-response', listener: (this: WebSocket, request: IncomingMessage, response: IncomingMessage) => void): this
+  on(event: string | symbol, listener: (this: WebSocket, ...args: any[]) => void): this
   ping(data?: any, mask?: boolean, cb?: (err: Error) => void): void
   terminate(): void
 }
