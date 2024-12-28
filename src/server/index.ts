@@ -20,16 +20,16 @@ app.get('/api/healthcheck', (req: Request, res: Response) => {
 });
 
 // Add error handlers
-server.on('error', (error) => {
-  console.error('Server error:', error);
+server.on('error', (err: Error) => {
+  console.error('Server error:', err);
 });
 
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception:', error);
+process.on('uncaughtException', (err: Error) => {
+  console.error('Uncaught exception:', err);
 });
 
-process.on('unhandledRejection', (error) => {
-  console.error('Unhandled rejection:', error);
+process.on('unhandledRejection', (err: Error | null) => {
+  console.error('Unhandled rejection:', err);
 });
 
 const port = process.env.PORT || 8080;
