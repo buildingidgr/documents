@@ -434,3 +434,21 @@ export function setupWebSocket(server: HttpServer) {
       ].join('\r\n')
 
       socket.write(upgradeResponse)
+
+      // Complete upgrade with authenticated user
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        const docWs = ws as DocumentWebSocket
+        docWs.userId = userId
+        console.log('WebSocket connection established for user:', userId)
+        handleConnection(docWs, request, wss)
+      })
+
+    } catch (error) {
+      console.error('Upgrade/auth error:', error)
+      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
+      socket.destroy()
+    }
+  })
+
+  return wss
+}
