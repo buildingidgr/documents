@@ -55,50 +55,110 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Client IP:', request.socket.remoteAddress);
     console.log('Headers:', JSON.stringify(request.headers, null, 2));
 
-    const { pathname, query } = parseUrl(request.url || '', true);
-    console.log('Parsed URL:', { pathname, query });
-    
-    // Verify path
-    if (pathname !== '/ws' && pathname !== '/websocket') {
-      console.log('Invalid WebSocket path:', pathname);
-      socket.destroy();
-      return;
-    }
-
-    // Handle CORS
-    const origin = request.headers.origin || null;
-    console.log('Request origin:', origin);
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'https://localhost:3000',
-      'https://documents-production.up.railway.app',
-      'https://piehost.com',
-      'http://piehost.com',
-      'https://websocketking.com',
-      'https://www.websocketking.com',
-      'https://postman.com',
-      'https://www.postman.com',
-      null // Allow connections with no origin for testing tools
-    ];
-    
-    if (!allowedOrigins.includes(origin)) {
-      console.log('Invalid origin:', origin);
-      socket.destroy();
-      return;
-    }
-
     try {
+      // Parse URL and verify path first
+      const { pathname, query } = parseUrl(request.url || '', true);
+      console.log('Parsed URL:', { pathname, query });
+      
+      if (pathname !== '/ws' && pathname !== '/websocket') {
+        console.log('Invalid WebSocket path:', pathname);
+        socket.destroy();
+        return;
+      }
+
+      // Verify token before upgrading
+      const token = query.token as string;
+      if (!token) {
+        console.log('No token provided');
+        socket.destroy();
+        return;
+      }
+
+      // Authenticate user before upgrading
+      console.log('Authenticating connection...');
+      const userId = await authenticateUser(token);
+      console.log('User authenticated:', userId);
+
+      // Verify document access if documentId is provided
+      const documentId = query.documentId as string;
+      if (documentId) {
+        console.log('Verifying document access:', documentId);
+        const document = await db.document.findFirst({
+          where: {
+            id: documentId,
+            users: {
+              some: {
+                id: userId
+              }
+            }
+          }
+        });
+
+        if (!document) {
+          console.log('Document access denied');
+          socket.destroy();
+          return;
+        }
+        console.log('Document access verified');
+      }
+
+      // Handle CORS after authentication
+      const origin = request.headers.origin || null;
+      console.log('Request origin:', origin);
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'https://localhost:3000',
+        'https://documents-production.up.railway.app',
+        'https://piehost.com',
+        'http://piehost.com',
+        'https://websocketking.com',
+        'https://www.websocketking.com',
+        'https://postman.com',
+        'https://www.postman.com',
+        null // Allow connections with no origin for testing tools
+      ];
+      
+      if (!allowedOrigins.includes(origin)) {
+        console.log('Invalid origin:', origin);
+        socket.destroy();
+        return;
+      }
+
       // Complete the WebSocket upgrade
       console.log('Attempting WebSocket upgrade...');
       wss.handleUpgrade(request, socket, head, (ws) => {
         console.log('WebSocket connection upgraded successfully');
-        
-        // Monitor socket state
         const docWs = ws as DocumentWebSocket;
-        docWs.on('error', (error) => {
-          console.error('WebSocket error occurred:', error);
-        });
+        
+        // Set authenticated user info
+        docWs.userId = userId;
+        docWs.documentId = documentId;
+        docWs.isAlive = true;
 
+        // Send immediate success message
+        const successMessage = JSON.stringify({ 
+          type: 'connected',
+          userId: userId,
+          documentId: documentId || null
+        });
+        docWs.send(successMessage);
+
+        // Set up ping interval
+        const pingInterval = setInterval(() => {
+          if (docWs.readyState === WebSocket.OPEN) {
+            try {
+              docWs.ping();
+            } catch (error) {
+              console.error('Error sending ping:', error);
+              clearInterval(pingInterval);
+              docWs.terminate();
+            }
+          } else {
+            clearInterval(pingInterval);
+          }
+        }, 30000);
+
+        // Set up event handlers
         docWs.on('close', (code, reason) => {
           console.log('WebSocket closed:', {
             code,
@@ -107,27 +167,22 @@ export function setupWebSocket(server: HttpServer) {
             userId: docWs.userId,
             documentId: docWs.documentId
           });
+          clearInterval(pingInterval);
         });
 
-        docWs.on('unexpected-response', (request, response) => {
-          console.error('Unexpected WebSocket response:', {
-            request: {
-              method: request.method,
-              url: request.url,
-              headers: request.headers
-            },
-            response: {
-              statusCode: response.statusCode,
-              statusMessage: response.statusMessage,
-              headers: response.headers
-            }
-          });
+        docWs.on('error', (error) => {
+          console.error('WebSocket error occurred:', error);
         });
 
-        wss.emit('connection', ws, request);
+        docWs.on('pong', () => {
+          docWs.isAlive = true;
+        });
+
+        // Emit connection event
+        wss.emit('connection', docWs, request);
       });
     } catch (error) {
-      console.error('Error during WebSocket upgrade:', error);
+      console.error('Error during WebSocket setup:', error);
       socket.destroy();
     }
   });
