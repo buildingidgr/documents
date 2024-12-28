@@ -62,14 +62,48 @@ export function setupWebSocket(server: HttpServer) {
       
       if (pathname !== '/ws' && pathname !== '/websocket') {
         console.log('Invalid WebSocket path:', pathname);
+        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
         socket.destroy();
         return;
       }
+
+      // Handle CORS first
+      const origin = request.headers.origin || null;
+      console.log('Request origin:', origin);
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'https://localhost:3000',
+        'https://documents-production.up.railway.app',
+        'https://piehost.com',
+        'http://piehost.com',
+        'https://websocketking.com',
+        'https://www.websocketking.com',
+        'https://postman.com',
+        'https://www.postman.com',
+        null // Allow connections with no origin for testing tools
+      ];
+      
+      if (!allowedOrigins.includes(origin)) {
+        console.log('Invalid origin:', origin);
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      // Set CORS headers
+      const responseHeaders = [
+        'HTTP/1.1 101 Switching Protocols',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        origin ? `Access-Control-Allow-Origin: ${origin}` : '',
+        'Access-Control-Allow-Credentials: true',
+      ].filter(Boolean);
 
       // Verify token before upgrading
       const token = query.token as string;
       if (!token) {
         console.log('No token provided');
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
@@ -96,32 +130,11 @@ export function setupWebSocket(server: HttpServer) {
 
         if (!document) {
           console.log('Document access denied');
+          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
           socket.destroy();
           return;
         }
         console.log('Document access verified');
-      }
-
-      // Handle CORS after authentication
-      const origin = request.headers.origin || null;
-      console.log('Request origin:', origin);
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'https://localhost:3000',
-        'https://documents-production.up.railway.app',
-        'https://piehost.com',
-        'http://piehost.com',
-        'https://websocketking.com',
-        'https://www.websocketking.com',
-        'https://postman.com',
-        'https://www.postman.com',
-        null // Allow connections with no origin for testing tools
-      ];
-      
-      if (!allowedOrigins.includes(origin)) {
-        console.log('Invalid origin:', origin);
-        socket.destroy();
-        return;
       }
 
       // Complete the WebSocket upgrade
@@ -136,12 +149,19 @@ export function setupWebSocket(server: HttpServer) {
         docWs.isAlive = true;
 
         // Send immediate success message
-        const successMessage = JSON.stringify({ 
-          type: 'connected',
-          userId: userId,
-          documentId: documentId || null
-        });
-        docWs.send(successMessage);
+        try {
+          const successMessage = JSON.stringify({ 
+            type: 'connected',
+            userId: userId,
+            documentId: documentId || null
+          });
+          console.log('Sending success message:', successMessage);
+          docWs.send(successMessage);
+        } catch (error) {
+          console.error('Error sending success message:', error);
+          docWs.close(1011, 'Failed to send success message');
+          return;
+        }
 
         // Set up ping interval
         const pingInterval = setInterval(() => {
@@ -183,6 +203,7 @@ export function setupWebSocket(server: HttpServer) {
       });
     } catch (error) {
       console.error('Error during WebSocket setup:', error);
+      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
       socket.destroy();
     }
   });
