@@ -12,23 +12,19 @@ const prismaClientSingleton = () => {
         url: process.env.DATABASE_URL
       }
     },
-    // Configure connection pool
-    connection: {
-      pool: {
-        min: 2,
-        max: 10
-      }
-    },
-    // Add retry logic
+    // Configure client behavior
     __internal: {
       engine: {
+        connectTimeout: 5000, // 5s connection timeout
+        requestTimeout: 10000, // 10s request timeout
         retry: {
           maxRetries: 3,
-          retryDelay: 1000, // 1s between retries
-          retryOnError: true
-        },
-        connectionTimeout: 5000, // 5s connection timeout
-        requestTimeout: 10000 // 10s request timeout
+          backoff: {
+            type: 'exponential',
+            minDelay: 1000, // 1s minimum delay
+            maxDelay: 5000  // 5s maximum delay
+          }
+        }
       }
     }
   })
