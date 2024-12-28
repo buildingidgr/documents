@@ -90,15 +90,6 @@ export function setupWebSocket(server: HttpServer) {
         return;
       }
 
-      // Set CORS headers
-      const responseHeaders = [
-        'HTTP/1.1 101 Switching Protocols',
-        'Upgrade: websocket',
-        'Connection: Upgrade',
-        origin ? `Access-Control-Allow-Origin: ${origin}` : '',
-        'Access-Control-Allow-Credentials: true',
-      ].filter(Boolean);
-
       // Verify token before upgrading
       const token = query.token as string;
       if (!token) {
@@ -137,6 +128,15 @@ export function setupWebSocket(server: HttpServer) {
         console.log('Document access verified');
       }
 
+      // Get WebSocket key from headers
+      const key = request.headers['sec-websocket-key'];
+      if (!key) {
+        console.log('No WebSocket key provided');
+        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
       // Complete the WebSocket upgrade
       console.log('Attempting WebSocket upgrade...');
       wss.handleUpgrade(request, socket, head, (ws) => {
@@ -163,7 +163,7 @@ export function setupWebSocket(server: HttpServer) {
           return;
         }
 
-        // Set up ping interval
+        // Set up ping interval with more frequent pings for Railway
         const pingInterval = setInterval(() => {
           if (docWs.readyState === WebSocket.OPEN) {
             try {
@@ -176,7 +176,7 @@ export function setupWebSocket(server: HttpServer) {
           } else {
             clearInterval(pingInterval);
           }
-        }, 30000);
+        }, 15000); // More frequent pings (15 seconds) for Railway
 
         // Set up event handlers
         docWs.on('close', (code, reason) => {
@@ -196,6 +196,39 @@ export function setupWebSocket(server: HttpServer) {
 
         docWs.on('pong', () => {
           docWs.isAlive = true;
+        });
+
+        // Set up message handler
+        docWs.on('message', async (message: RawData) => {
+          try {
+            const data: DocumentUpdate = JSON.parse(message.toString());
+            console.log('Received message:', data.type);
+            
+            // Ensure the documentId matches if it was provided in URL
+            if (docWs.documentId && data.documentId !== docWs.documentId) {
+              console.log('Document ID mismatch');
+              docWs.send(JSON.stringify({ error: 'Document ID mismatch' }));
+              return;
+            }
+            
+            switch (data.type) {
+              case 'update':
+                await handleDocumentUpdate(docWs, data, wss);
+                break;
+              case 'cursor':
+                await handleCursorUpdate(docWs, data, wss);
+                break;
+              case 'presence':
+                await handlePresenceUpdate(docWs, data, wss);
+                break;
+              default:
+                console.log('Unknown message type:', data.type);
+                docWs.send(JSON.stringify({ error: 'Unknown message type' }));
+            }
+          } catch (error) {
+            console.error('WebSocket message error:', error);
+            docWs.send(JSON.stringify({ error: 'Invalid message format' }));
+          }
         });
 
         // Emit connection event

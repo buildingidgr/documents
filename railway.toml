@@ -7,6 +7,7 @@ startCommand = "npm run db:deploy && npm start"
 healthcheckPath = "/api/healthcheck"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
+numReplicas = 1
 
 [deploy.websocket]
 enabled = true
@@ -14,4 +15,6 @@ path = ["/ws", "/websocket"]
 timeout = 300
 keepAlive = true
 maxConnections = 1000
+idleTimeout = 60
+proxyProtocol = true
 
