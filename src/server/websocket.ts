@@ -59,8 +59,50 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Upgrade request received')
     console.log('Request headers:', request.headers)
 
-    // Pre-authenticate before upgrading
+    socket.on('error', (err) => {
+      console.error('Socket error during upgrade:', err)
+      socket.destroy()
+    })
+
     try {
+      // Clean path check
+      const { pathname } = parseUrl(request.url || '', true)
+      const normalizedPath = pathname?.toLowerCase()
+      console.log('Requested path:', normalizedPath)
+      
+      if (normalizedPath !== '/ws' && normalizedPath !== '/websocket') {
+        console.log('Invalid path:', normalizedPath)
+        socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
+      // Clean origin check
+      const rawOrigin = request.headers.origin
+      const cleanOrigin = rawOrigin?.replace(/[;,]$/, '') || null
+      console.log('Clean origin:', cleanOrigin)
+
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'https://localhost:3000',
+        'https://documents-production.up.railway.app',
+        'https://piehost.com',
+        'http://piehost.com',
+        'https://websocketking.com',
+        'https://www.websocketking.com',
+        'https://postman.com',
+        'https://www.postman.com',
+        null
+      ]
+
+      if (!allowedOrigins.includes(cleanOrigin)) {
+        console.log('Invalid origin:', cleanOrigin)
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
+      // Extract and validate token
       const { query } = parseUrl(request.url || '', true)
       const token = query.token as string
 
@@ -79,11 +121,13 @@ export function setupWebSocket(server: HttpServer) {
         socket.destroy()
         return
       }
+      console.log('Authentication successful for user:', userId)
 
-      // Now handle the upgrade with pre-authenticated user
+      // Complete upgrade with authenticated user
       wss.handleUpgrade(request, socket, head, (ws) => {
         const docWs = ws as DocumentWebSocket
-        docWs.userId = userId  // Set userId immediately
+        docWs.userId = userId
+        console.log('WebSocket connection established for user:', userId)
         handleConnection(docWs, request, wss)
       })
 
@@ -171,6 +215,7 @@ async function handleConnection(docWs: DocumentWebSocket, request: IncomingMessa
       
       try {
         docWs.send(successMessage)
+        console.log('Success message sent to user:', docWs.userId)
       } catch (error) {
         console.log('Failed to send success message:', error)
         return
@@ -273,8 +318,6 @@ async function handleCursorUpdate(
   data: DocumentUpdate,
   wss: WebSocketServer
 ) {
-  ws.documentId = data.documentId
-
   try {
     // Broadcast cursor position to other clients
     broadcastToDocument(wss, data.documentId, {
@@ -293,8 +336,6 @@ async function handlePresenceUpdate(
   data: DocumentUpdate,
   wss: WebSocketServer
 ) {
-  ws.documentId = data.documentId
-
   try {
     // Broadcast presence update to other clients
     broadcastToDocument(wss, data.documentId, {
