@@ -55,24 +55,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         data: {
           title: validatedInput.title,
           content: validatedInput.content as Prisma.InputJsonValue,
-        }
-      });
-
-      // Create version
-      await tx.version.create({
-        data: {
-          content: validatedInput.content as Prisma.InputJsonValue,
-          document: { connect: { id: doc.id } },
-          user: { connect: { id: user.id } }
-        }
-      });
-
-      // Create user association
-      await tx.document.update({
-        where: { id: doc.id },
-        data: {
           users: {
-            connect: { id: user.id }
+            connect: { id: user.id }  // Connect user during initial creation
+          },
+          versions: {
+            create: {
+              content: validatedInput.content as Prisma.InputJsonValue,
+              user: { connect: { id: user.id } }
+            }
           }
         },
         include: {
@@ -89,36 +79,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       });
 
-      return doc;
+      return doc;  // Return document with all associations
     });
 
     console.log('Created document:', {
       id: newDocument.id,
-      title: newDocument.title
+      title: newDocument.title,
+      userIds: newDocument.users?.map(u => u.id) || [],
+      versionCount: newDocument.versions?.length || 0
     });
 
-    // Verify the association was created
-    const verifiedDoc = await db.document.findUnique({
-      where: { id: newDocument.id },
-      include: {
-        users: true,
-        versions: {
-          orderBy: {
-            createdAt: 'desc'
-          },
-          take: 1,
-          include: {
-            user: true
-          }
-        }
-      }
-    });
-
-    if (!verifiedDoc?.users.some(u => u.id === user.id)) {
-      throw new Error('Failed to create user association');
-    }
-
-    return res.status(200).json(verifiedDoc);
+    return res.status(200).json(newDocument);
   } catch (err: unknown) {
     console.error('Error creating document:', err);
     
