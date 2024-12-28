@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 
 declare global {
   var prisma: PrismaClient | undefined
@@ -7,24 +7,10 @@ declare global {
 const prismaClientSingleton = () => {
   return new PrismaClient({
     log: [
-      {
-        emit: 'event',
-        level: 'query',
-      },
-      {
-        emit: 'event',
-        level: 'error',
-      },
-      {
-        emit: 'event',
-        level: 'warn',
-      },
-    ],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL
-      }
-    }
+      { level: 'query' },
+      { level: 'error' },
+      { level: 'warn' }
+    ]
   })
 }
 
@@ -33,20 +19,6 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 export const prisma = globalForPrisma.prisma ?? prismaClientSingleton()
-
-// Add event listeners for logging
-prisma.$on('query', (e) => {
-  console.log('Query: ' + e.query)
-  console.log('Duration: ' + e.duration + 'ms')
-})
-
-prisma.$on('error', (e) => {
-  console.error('Prisma Error:', e.message)
-})
-
-prisma.$on('warn', (e) => {
-  console.warn('Prisma Warning:', e.message)
-})
 
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma
