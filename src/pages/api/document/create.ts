@@ -35,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const userId = await authenticateUser(token);
 
     // Ensure user exists in database
-    console.log('Creating/updating user:', userId);
+    process.stdout.write(`[Document Create] Creating/updating user: ${userId}\n`);
     const user = await db.user.upsert({
       where: { id: userId },
       update: {},
@@ -44,90 +44,95 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         name: null,
       },
     });
-    console.log('User operation result:', JSON.stringify(user, null, 2));
+    process.stdout.write(`[Document Create] User operation result: ${JSON.stringify(user)}\n`);
 
     // Validate input
     const validatedInput = documentInputSchema.parse(req.body);
-    console.log('Validated input:', JSON.stringify(validatedInput, null, 2));
+    process.stdout.write(`[Document Create] Validated input: ${JSON.stringify(validatedInput)}\n`);
 
-    // Create document with associations
-    console.log('Creating document with associations for user:', user.id);
-    const doc = await db.document.create({
-      data: {
-        title: validatedInput.title,
-        content: validatedInput.content as Prisma.InputJsonValue,
-        users: {
-          connect: { id: user.id }
-        },
-        versions: {
-          create: {
-            content: validatedInput.content as Prisma.InputJsonValue,
-            user: { connect: { id: user.id } }
+    try {
+      // Create document with associations
+      process.stdout.write(`[Document Create] Creating document for user: ${user.id}\n`);
+      const doc = await db.document.create({
+        data: {
+          title: validatedInput.title,
+          content: validatedInput.content as Prisma.InputJsonValue,
+          users: {
+            connect: { id: user.id }
+          },
+          versions: {
+            create: {
+              content: validatedInput.content as Prisma.InputJsonValue,
+              user: { connect: { id: user.id } }
+            }
           }
         }
-      }
-    });
-    console.log('Initial document creation result:', JSON.stringify(doc, null, 2));
+      });
+      process.stdout.write(`[Document Create] Initial document creation result: ${JSON.stringify(doc)}\n`);
 
-    // Fetch the complete document with associations
-    console.log('Fetching complete document:', doc.id);
-    const documentWithAssociations = await db.document.findUnique({
-      where: { id: doc.id },
-      include: {
-        users: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        versions: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true
-              }
+      // Fetch the complete document with associations
+      process.stdout.write(`[Document Create] Fetching complete document: ${doc.id}\n`);
+      const documentWithAssociations = await db.document.findUnique({
+        where: { id: doc.id },
+        include: {
+          users: {
+            select: {
+              id: true,
+              name: true
             }
           },
-          orderBy: {
-            createdAt: 'desc'
-          },
-          take: 1
+          versions: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true
+                }
+              }
+            },
+            orderBy: {
+              createdAt: 'desc'
+            },
+            take: 1
+          }
         }
+      });
+      process.stdout.write(`[Document Create] Document with associations: ${JSON.stringify(documentWithAssociations)}\n`);
+
+      if (!documentWithAssociations) {
+        process.stderr.write(`[Document Create] Error: Document not found after creation: ${doc.id}\n`);
+        throw new Error('Document not found after creation');
       }
-    });
-    console.log('Document with associations:', JSON.stringify(documentWithAssociations, null, 2));
 
-    if (!documentWithAssociations) {
-      console.error('Document not found after creation:', doc.id);
-      throw new Error('Document not found after creation');
+      // Verify user association
+      const hasUserAssociation = documentWithAssociations.users.some(u => u.id === user.id);
+      process.stdout.write(`[Document Create] User association check: ${JSON.stringify({
+        documentId: doc.id,
+        userId: user.id,
+        hasAssociation: hasUserAssociation,
+        associatedUsers: documentWithAssociations.users
+      })}\n`);
+
+      if (!hasUserAssociation) {
+        process.stderr.write(`[Document Create] Error: User association missing, attempting direct query\n`);
+        // Double check with direct query
+        const userAssoc = await db.$queryRaw`
+          SELECT * FROM "_DocumentToUser" 
+          WHERE "A" = ${doc.id} AND "B" = ${user.id}
+        `;
+        process.stdout.write(`[Document Create] Direct user association query result: ${JSON.stringify(userAssoc)}\n`);
+      }
+
+      // Return the complete document
+      return res.status(200).json({
+        ...documentWithAssociations,
+        users: documentWithAssociations.users,
+        versions: documentWithAssociations.versions
+      });
+    } catch (dbError) {
+      process.stderr.write(`[Document Create] Database operation error: ${JSON.stringify(dbError)}\n`);
+      throw dbError;
     }
-
-    // Verify user association
-    const hasUserAssociation = documentWithAssociations.users.some(u => u.id === user.id);
-    console.log('User association check:', {
-      documentId: doc.id,
-      userId: user.id,
-      hasAssociation: hasUserAssociation,
-      associatedUsers: documentWithAssociations.users
-    });
-
-    if (!hasUserAssociation) {
-      console.error('User association missing, attempting direct query');
-      // Double check with direct query
-      const userAssoc = await db.$queryRaw`
-        SELECT * FROM "_DocumentToUser" 
-        WHERE "A" = ${doc.id} AND "B" = ${user.id}
-      `;
-      console.log('Direct user association query result:', userAssoc);
-    }
-
-    // Return the complete document
-    return res.status(200).json({
-      ...documentWithAssociations,
-      users: documentWithAssociations.users,
-      versions: documentWithAssociations.versions
-    });
   } catch (err: unknown) {
     console.error('Error creating document:', err);
     
