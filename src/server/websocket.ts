@@ -137,7 +137,6 @@ export function setupWebSocket(server: HttpServer) {
         docWs.on('close', (code, reason) => {
           console.log(`Connection closed with code ${code}:`, reason.toString())
           socketClosed = true
-          // Cleanup any document-specific resources here if needed
         })
 
         // Now authenticate after upgrade
@@ -152,7 +151,7 @@ export function setupWebSocket(server: HttpServer) {
             return
           }
 
-          const authResponse = await authenticateUser(token)
+          const authResult = await authenticateUser(token)
           
           // Check if socket was closed during authentication
           if (socketClosed) {
@@ -160,7 +159,7 @@ export function setupWebSocket(server: HttpServer) {
             return
           }
           
-          docWs.userId = authResponse
+          docWs.userId = authResult.userId
 
           if (documentId) {
             const document = await db.document.findFirst({
@@ -168,7 +167,7 @@ export function setupWebSocket(server: HttpServer) {
                 id: documentId,
                 users: {
                   some: {
-                    id: userId
+                    id: docWs.userId
                   }
                 }
               }
@@ -187,7 +186,7 @@ export function setupWebSocket(server: HttpServer) {
           if (!socketClosed && docWs.readyState === WebSocket.OPEN) {
             const successMessage = JSON.stringify({
               type: 'connected',
-              userId: authResponse,
+              userId: docWs.userId,
               documentId: documentId || null
             })
             try {
