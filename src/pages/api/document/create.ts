@@ -34,101 +34,78 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const token = req.headers.authorization?.split(' ')[1];
     const userId = await authenticateUser(token);
 
-    // Ensure user exists in database
-    process.stdout.write(`[Document Create] Creating/updating user: ${userId}\n`);
-    const user = await db.user.upsert({
-      where: { id: userId },
-      update: {},
-      create: {
-        id: userId,
-        name: null,
-      },
-    });
-    process.stdout.write(`[Document Create] User operation result: ${JSON.stringify(user)}\n`);
-
     // Validate input
     const validatedInput = documentInputSchema.parse(req.body);
     process.stdout.write(`[Document Create] Validated input: ${JSON.stringify(validatedInput)}\n`);
 
     try {
-      // Create document with associations
-      process.stdout.write(`[Document Create] Creating document for user: ${user.id}\n`);
-      const doc = await db.document.create({
-        data: {
-          title: validatedInput.title,
-          content: validatedInput.content as Prisma.InputJsonValue,
-          users: {
-            connect: { id: user.id }
+      // Wrap all database operations in a single transaction
+      const result = await db.$transaction(async (tx) => {
+        // Ensure user exists in database
+        process.stdout.write(`[Document Create] Creating/updating user: ${userId}\n`);
+        const user = await tx.user.upsert({
+          where: { id: userId },
+          update: {},
+          create: {
+            id: userId,
+            name: null,
           },
-          versions: {
-            create: {
-              content: validatedInput.content as Prisma.InputJsonValue,
-              user: { connect: { id: user.id } }
-            }
-          }
-        }
-      });
-      process.stdout.write(`[Document Create] Initial document creation result: ${JSON.stringify(doc)}\n`);
+        });
+        process.stdout.write(`[Document Create] User operation result: ${JSON.stringify(user)}\n`);
 
-      // Fetch the complete document with associations
-      process.stdout.write(`[Document Create] Fetching complete document: ${doc.id}\n`);
-      const documentWithAssociations = await db.document.findUnique({
-        where: { id: doc.id },
-        include: {
-          users: {
-            select: {
-              id: true,
-              name: true
+        // Create document with associations
+        process.stdout.write(`[Document Create] Creating document for user: ${user.id}\n`);
+        const doc = await tx.document.create({
+          data: {
+            title: validatedInput.title,
+            content: validatedInput.content as Prisma.InputJsonValue,
+            users: {
+              connect: { id: user.id }
+            },
+            versions: {
+              create: {
+                content: validatedInput.content as Prisma.InputJsonValue,
+                user: { connect: { id: user.id } }
+              }
             }
           },
-          versions: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true
-                }
+          include: {
+            users: {
+              select: {
+                id: true,
+                name: true
               }
             },
-            orderBy: {
-              createdAt: 'desc'
-            },
-            take: 1
+            versions: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
+              },
+              orderBy: {
+                createdAt: 'desc'
+              },
+              take: 1
+            }
           }
-        }
-      });
-      process.stdout.write(`[Document Create] Document with associations: ${JSON.stringify(documentWithAssociations)}\n`);
+        });
+        process.stdout.write(`[Document Create] Document created with associations: ${JSON.stringify(doc)}\n`);
 
-      if (!documentWithAssociations) {
-        process.stderr.write(`[Document Create] Error: Document not found after creation: ${doc.id}\n`);
-        throw new Error('Document not found after creation');
+        return doc;
+      }, {
+        maxWait: 5000, // 5s max wait time
+        timeout: 10000 // 10s timeout
+      });
+
+      if (!result.users.some((u: User) => u.id === userId)) {
+        process.stderr.write(`[Document Create] Error: User association missing after transaction\n`);
+        throw new Error('Failed to create user association');
       }
 
-      // Verify user association
-      const hasUserAssociation = documentWithAssociations.users.some((u: User) => u.id === user.id);
-      process.stdout.write(`[Document Create] User association check: ${JSON.stringify({
-        documentId: doc.id,
-        userId: user.id,
-        hasAssociation: hasUserAssociation,
-        associatedUsers: documentWithAssociations.users
-      })}\n`);
-
-      if (!hasUserAssociation) {
-        process.stderr.write(`[Document Create] Error: User association missing, attempting direct query\n`);
-        // Double check with direct query
-        const userAssoc = await db.$queryRaw`
-          SELECT * FROM "_DocumentToUser" 
-          WHERE "A" = ${doc.id} AND "B" = ${user.id}
-        `;
-        process.stdout.write(`[Document Create] Direct user association query result: ${JSON.stringify(userAssoc)}\n`);
-      }
-
-      // Return the complete document
-      return res.status(200).json({
-        ...documentWithAssociations,
-        users: documentWithAssociations.users,
-        versions: documentWithAssociations.versions
-      });
+      return res.status(200).json(result);
     } catch (dbError) {
       process.stderr.write(`[Document Create] Database operation error: ${JSON.stringify(dbError)}\n`);
       throw dbError;
