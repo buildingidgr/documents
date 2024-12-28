@@ -24,6 +24,8 @@ export async function validateToken(token: string): Promise<AuthResponse> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Origin': 'https://documents-production.up.railway.app',
+        'Accept': 'application/json'
       },
       body: requestBody,
     });
@@ -59,10 +61,17 @@ export async function authenticateUser(token?: string): Promise<string> {
     // Remove 'Bearer ' prefix if present
     const cleanToken = token.replace('Bearer ', '');
     
-    const response = await fetch(process.env.AUTH_SERVICE_URL + '/validate', {
+    const authServiceUrl = process.env.AUTH_SERVICE_URL;
+    if (!authServiceUrl) {
+      throw new Error('AUTH_SERVICE_URL is not set');
+    }
+
+    const response = await fetch(`${authServiceUrl}/v1/token/validate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Origin': 'https://documents-production.up.railway.app',
+        'Accept': 'application/json'
       },
       body: JSON.stringify({ token: cleanToken }),
     });
