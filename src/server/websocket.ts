@@ -47,10 +47,26 @@ function generateAcceptKey(wsKey: string): string {
 }
 
 function cleanOrigin(origin: string | undefined): string | null {
-  if (!origin) return null
-  // Remove trailing semicolons, commas, quotes and whitespace
-  return origin.replace(/[;,'"\s]+$/, '').trim()
+  if (!origin) return null;
+  
+  // First remove any trailing punctuation and whitespace
+  let cleaned = origin.replace(/[;,'"]\s*$/, '');
+  // Then remove any remaining whitespace
+  cleaned = cleaned.trim();
+  
+  // Handle common malformed cases
+  if (cleaned.endsWith(';')) {
+    cleaned = cleaned.slice(0, -1);
+  }
+  
+  return cleaned;
 }
+
+// Test cases
+console.log(cleanOrigin('https://piehost.com;')) // -> https://piehost.com
+console.log(cleanOrigin('https://piehost.com;,')) // -> https://piehost.com
+console.log(cleanOrigin('https://piehost.com; ')) // -> https://piehost.com
+console.log(cleanOrigin('https://piehost.com";')) // -> https://piehost.com
 
 async function handleConnection(docWs: DocumentWebSocket, request: IncomingMessage, wss: WebSocketServer) {
   let socketClosed = false
@@ -371,7 +387,8 @@ export function setupWebSocket(server: HttpServer) {
       const cleanedOrigin = cleanOrigin(rawOrigin)
       console.log('Origin header processing:', {
         raw: rawOrigin,
-        cleaned: cleanedOrigin
+        cleaned: cleanedOrigin,
+        valid: allowedOrigins.includes(cleanedOrigin)
       })
 
       const allowedOrigins = [
@@ -391,7 +408,8 @@ export function setupWebSocket(server: HttpServer) {
         console.log('Invalid origin:', { 
           rawOrigin,
           cleanedOrigin, 
-          allowedOrigins 
+          allowedOrigins,
+          matched: allowedOrigins.includes(cleanedOrigin)
         })
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
         socket.destroy()
