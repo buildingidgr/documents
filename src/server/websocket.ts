@@ -9,14 +9,19 @@ interface DocumentWebSocket extends WebSocket {
   documentId?: string
   userId?: string
   isAlive?: boolean
-  readyState: number
+  // WebSocket readyState values:
+  // 0 - CONNECTING
+  // 1 - OPEN
+  // 2 - CLOSING
+  // 3 - CLOSED
+  readyState: 0 | 1 | 2 | 3
   on(event: 'close', listener: (code: number, reason: Buffer) => void): this
   on(event: 'error', listener: (error: Error) => void): this
   on(event: 'message', listener: (data: RawData) => void): this
   on(event: 'open', listener: () => void): this
   on(event: 'ping', listener: (data: Buffer) => void): this
   on(event: 'pong', listener: (data: Buffer) => void): this
-  on(event: 'unexpected-response', listener: (request: any, response: any) => void): this
+  on(event: 'unexpected-response', listener: (request: IncomingMessage, response: IncomingMessage) => void): this
   ping(data?: any, mask?: boolean, cb?: (err: Error) => void): void
   terminate(): void
 }
