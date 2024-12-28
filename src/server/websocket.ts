@@ -62,12 +62,6 @@ function cleanOrigin(origin: string | undefined): string | null {
   return cleaned;
 }
 
-// Test cases
-console.log(cleanOrigin('https://piehost.com;')) // -> https://piehost.com
-console.log(cleanOrigin('https://piehost.com;,')) // -> https://piehost.com
-console.log(cleanOrigin('https://piehost.com; ')) // -> https://piehost.com
-console.log(cleanOrigin('https://piehost.com";')) // -> https://piehost.com
-
 async function handleConnection(docWs: DocumentWebSocket, request: IncomingMessage, wss: WebSocketServer) {
   let socketClosed = false
   docWs.isAlive = true
@@ -383,14 +377,7 @@ export function setupWebSocket(server: HttpServer) {
         return
       }
 
-      const rawOrigin = request.headers.origin
-      const cleanedOrigin = cleanOrigin(rawOrigin)
-      console.log('Origin header processing:', {
-        raw: rawOrigin,
-        cleaned: cleanedOrigin,
-        valid: allowedOrigins.includes(cleanedOrigin)
-      })
-
+      // Set up allowed origins
       const allowedOrigins = [
         'http://localhost:3000',
         'https://localhost:3000',
@@ -403,6 +390,14 @@ export function setupWebSocket(server: HttpServer) {
         'https://www.postman.com',
         null
       ]
+
+      const rawOrigin = request.headers.origin
+      const cleanedOrigin = cleanOrigin(rawOrigin)
+      console.log('Origin header processing:', {
+        raw: rawOrigin,
+        cleaned: cleanedOrigin,
+        valid: allowedOrigins.includes(cleanedOrigin)
+      })
 
       if (!allowedOrigins.includes(cleanedOrigin)) {
         console.log('Invalid origin:', { 
@@ -437,36 +432,36 @@ export function setupWebSocket(server: HttpServer) {
       }
       console.log('Authentication successful for user:', userId)
 
-      // Generate accept key
-      const key = request.headers['sec-websocket-key']
-      const acceptKey = generateAcceptKey(key!)
+// Generate accept key
+const key = request.headers['sec-websocket-key']
+const acceptKey = generateAcceptKey(key!)
 
-      // Send WebSocket upgrade response
-      const upgradeResponse = [
-        'HTTP/1.1 101 Switching Protocols',
-        'Upgrade: websocket',
-        'Connection: Upgrade',
-        `Sec-WebSocket-Accept: ${acceptKey}`,
-        '',
-        ''
-      ].join('\r\n')
+// Send WebSocket upgrade response
+const upgradeResponse = [
+  'HTTP/1.1 101 Switching Protocols',
+  'Upgrade: websocket',
+  'Connection: Upgrade',
+  `Sec-WebSocket-Accept: ${acceptKey}`,
+  '',
+  ''
+].join('\r\n')
 
-      socket.write(upgradeResponse)
+socket.write(upgradeResponse)
 
-      // Complete upgrade with authenticated user
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        const docWs = ws as DocumentWebSocket
-        docWs.userId = userId
-        console.log('WebSocket connection established for user:', userId)
-        handleConnection(docWs, request, wss)
-      })
+// Complete upgrade with authenticated user
+wss.handleUpgrade(request, socket, head, (ws) => {
+  const docWs = ws as DocumentWebSocket
+  docWs.userId = userId
+  console.log('WebSocket connection established for user:', userId)
+  handleConnection(docWs, request, wss)
+})
 
-    } catch (error) {
-      console.error('Upgrade/auth error:', error)
-      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
-      socket.destroy()
-    }
-  })
+} catch (error) {
+console.error('Upgrade/auth error:', error)
+socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
+socket.destroy()
+}
+})
 
-  return wss
+return wss
 }
