@@ -110,12 +110,24 @@ export function setupWebSocket(server: HttpServer) {
         'https://www.postman.com'
       ],
       methods: ['GET', 'POST'],
-      credentials: true
+      credentials: true,
+      allowedHeaders: ['Authorization', 'Content-Type']
     },
-    pingInterval: 15000, // 15 seconds
-    pingTimeout: 10000,  // 10 seconds
-    connectTimeout: 5000, // 5 seconds
-    transports: ['websocket']
+    allowEIO3: true,            // Allow Engine.IO v3 clients
+    pingInterval: 15000,
+    pingTimeout: 10000,
+    connectTimeout: 10000,
+    transports: ['websocket'],
+    allowUpgrades: true,
+    perMessageDeflate: {
+      threshold: 2048           // Size in bytes to start compressing
+    },
+    maxHttpBufferSize: 1e8      // 100 MB
+  });
+
+  // Add error handling for the server
+  io.engine.on('connection_error', (err) => {
+    console.error('Connection error:', err);
   });
 
   // Authentication middleware

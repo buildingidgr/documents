@@ -12,16 +12,6 @@ numReplicas = 1
 [service]
 internal_port = 8080
 protocol = "http"
-auto_stop_machines = false
-auto_start_machines = true
-min_machines_running = 1
-
-[service.http]
-force_https = true
-keepalive_timeout = 120
-proxy_connect_timeout = 5
-proxy_read_timeout = 120
-proxy_send_timeout = 120
 
 [[service.ports]]
 port = 8080
@@ -33,3 +23,6 @@ path = "/ws"
 ping_interval = 15000
 ping_timeout = 10000
 client_tracking = true
+proxy_read_timeout = 300
+proxy_send_timeout = 300
+proxy_connect_timeout = 10
