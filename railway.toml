@@ -8,6 +8,8 @@ healthcheckPath = "/api/healthcheck"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
 numReplicas = 1
+healthcheckInterval = 30
+maxHealthcheckRetries = 3
 
 [deploy.websocket]
 enabled = true
@@ -15,6 +17,23 @@ path = ["/ws", "/websocket"]
 timeout = 300
 keepAlive = true
 maxConnections = 1000
-idleTimeout = 60
+idleTimeout = 120
 proxyProtocol = true
+pingInterval = 30
+pingTimeout = 10
+handshakeTimeout = 30
+maxMessageSize = "1MB"
 
+[metrics]
+enabled = true
+path = "/metrics"
+
+[deploy.env]
+NODE_ENV = "production"
+TZ = "UTC"
+
+[service]
+internal_port = 3000
+auto_stop_machines = false
+auto_start_machines = true
+min_machines_running = 1
