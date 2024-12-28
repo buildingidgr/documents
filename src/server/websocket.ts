@@ -4,6 +4,7 @@ import { authenticateUser } from './auth'
 import { db } from './db'
 import { Prisma } from '@prisma/client'
 import { parse as parseUrl } from 'url'
+import { createHash } from 'crypto'
 
 interface DocumentWebSocket extends WebSocket {
   documentId?: string
@@ -28,6 +29,14 @@ interface DocumentUpdate {
   documentId: string
   userId: string
   data: any
+}
+
+function generateAcceptValue(secWebSocketKey: string): string {
+  const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+  const combined = secWebSocketKey + GUID
+  const sha1 = createHash('sha1')
+  sha1.update(combined)
+  return sha1.digest('base64')
 }
 
 export function setupWebSocket(server: HttpServer) {
@@ -77,6 +86,22 @@ export function setupWebSocket(server: HttpServer) {
         return
       }
 
+      // Validate WebSocket version
+      const version = request.headers['sec-websocket-version']
+      if (version !== '13') {
+        socket.write('HTTP/1.1 400 Bad Request\r\nSec-WebSocket-Version: 13\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
+      // Validate WebSocket key
+      const key = request.headers['sec-websocket-key']
+      if (!key) {
+        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
       // Clean origin check
       const rawOrigin = request.headers.origin
       const cleanOrigin = rawOrigin?.replace(/[;,]$/, '') || null
@@ -122,6 +147,20 @@ export function setupWebSocket(server: HttpServer) {
         return
       }
       console.log('Authentication successful for user:', userId)
+
+      // Write upgrade headers
+      const acceptValue = generateAcceptValue(key)
+      const headers = [
+        'HTTP/1.1 101 Switching Protocols',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Sec-WebSocket-Accept: ${acceptValue}`,
+        '',
+        ''
+      ].join('\r\n')
+
+      // Write the response headers to the socket
+      socket.write(headers)
 
       // Complete upgrade with authenticated user
       wss.handleUpgrade(request, socket, head, (ws) => {
