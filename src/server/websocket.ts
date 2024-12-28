@@ -59,19 +59,36 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Upgrade request received')
     console.log('Request headers:', request.headers)
 
-    socket.on('error', (err) => {
-      console.error('Socket error during upgrade:', err)
-      socket.destroy()
-    })
-
+    // Pre-authenticate before upgrading
     try {
-      // Complete upgrade first before any async operations
+      const { query } = parseUrl(request.url || '', true)
+      const token = query.token as string
+
+      if (!token) {
+        console.log('No token provided')
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
+      // Authenticate first
+      const userId = await authenticateUser(token)
+      if (!userId) {
+        console.log('Authentication failed')
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
+      // Now handle the upgrade with pre-authenticated user
       wss.handleUpgrade(request, socket, head, (ws) => {
         const docWs = ws as DocumentWebSocket
+        docWs.userId = userId  // Set userId immediately
         handleConnection(docWs, request, wss)
       })
+
     } catch (error) {
-      console.error('Upgrade error:', error)
+      console.error('Upgrade/auth error:', error)
       socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
       socket.destroy()
     }
@@ -84,7 +101,7 @@ async function handleConnection(docWs: DocumentWebSocket, request: IncomingMessa
   let socketClosed = false
   docWs.isAlive = true
 
-  // Set up heartbeat
+  // Set up heartbeat immediately
   const pingInterval = setInterval(() => {
     if (!docWs.isAlive) {
       console.log('Connection dead, terminating')
@@ -109,6 +126,7 @@ async function handleConnection(docWs: DocumentWebSocket, request: IncomingMessa
   docWs.on('error', (error) => {
     console.error('WebSocket error:', error)
     socketClosed = true
+    clearInterval(pingInterval)
   })
 
   docWs.on('close', (code, reason) => {
@@ -119,78 +137,49 @@ async function handleConnection(docWs: DocumentWebSocket, request: IncomingMessa
 
   try {
     const { query } = parseUrl(request.url || '', true)
-    const token = query.token as string
     const documentId = query.documentId as string
 
-    if (!token) {
-      console.log('No token provided')
-      docWs.close(1008, 'Authentication required')
-      return
-    }
-
-    // Authenticate user
-    try {
-      const userId = await authenticateUser(token)
-      console.log('Auth userId:', userId)
-      
-      if (socketClosed) {
-        console.log('Socket closed during authentication, aborting setup')
-        return
-      }
-
-      if (!userId) {
-        console.log('Invalid auth response - no userId')
-        docWs.close(1008, 'Authentication failed')
-        return
-      }
-
-      docWs.userId = userId
-
-      // Document access check
-      if (documentId) {
-        const document = await db.document.findFirst({
-          where: {
-            id: documentId,
-            users: {
-              some: {
-                id: docWs.userId
-              }
+    // Document access check (if documentId provided)
+    if (documentId) {
+      const document = await db.document.findFirst({
+        where: {
+          id: documentId,
+          users: {
+            some: {
+              id: docWs.userId!
             }
           }
-        })
-
-        if (!document) {
-          console.log('Document access denied:', documentId)
-          docWs.close(1008, 'Document access denied')
-          return
         }
+      })
 
-        docWs.documentId = documentId
+      if (!document) {
+        console.log('Document access denied:', documentId)
+        docWs.close(1008, 'Document access denied')
+        return
       }
 
-      // Send success message
-      if (!socketClosed && docWs.readyState === WebSocket.OPEN) {
-        const successMessage = JSON.stringify({
-          type: 'connected',
-          userId: docWs.userId,
-          documentId: documentId || null
-        })
-        
-        try {
-          docWs.send(successMessage)
-        } catch (error) {
-          console.log('Failed to send success message:', error)
-          return
-        }
-      }
-
-      // Set up message handler
-      setupMessageHandler(docWs, wss)
-
-    } catch (error) {
-      console.error('Authentication error:', error)
-      docWs.close(1008, 'Authentication failed')
+      docWs.documentId = documentId
     }
+
+    // Send success message immediately if socket is still open
+    if (!socketClosed && docWs.readyState === WebSocket.OPEN) {
+      const successMessage = JSON.stringify({
+        type: 'connected',
+        userId: docWs.userId,
+        documentId: documentId || null
+      })
+      
+      try {
+        docWs.send(successMessage)
+      } catch (error) {
+        console.log('Failed to send success message:', error)
+        return
+      }
+    }
+
+    // Set up message handler
+    setupMessageHandler(docWs, wss)
+
   } catch (error) {
     console.error('Connection handling error:', error)
     docWs.close(1011, 'Internal server error')
@@ -333,7 +322,11 @@ function broadcastToDocument(
         docClient.documentId === documentId &&
         client.readyState === WebSocket.OPEN
       ) {
-        client.send(JSON.stringify(data))
+        try {
+          client.send(JSON.stringify(data))
+        } catch (error) {
+          console.error('Failed to send to a client:', error)
+        }
       }
     })
   } catch (error) {
