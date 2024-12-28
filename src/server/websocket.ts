@@ -1,5 +1,4 @@
-import WebSocket, { RawData } from 'ws'
-import { WebSocketServer } from 'ws'
+import WebSocket, { RawData, WebSocketServer } from 'ws'
 import { Server as HttpServer, IncomingMessage } from 'http'
 import { authenticateUser } from './auth'
 import { db } from './db'
@@ -10,6 +9,16 @@ interface DocumentWebSocket extends WebSocket {
   documentId?: string
   userId?: string
   isAlive?: boolean
+  readyState: number
+  on(event: 'close', listener: (code: number, reason: Buffer) => void): this
+  on(event: 'error', listener: (error: Error) => void): this
+  on(event: 'message', listener: (data: RawData) => void): this
+  on(event: 'open', listener: () => void): this
+  on(event: 'ping', listener: (data: Buffer) => void): this
+  on(event: 'pong', listener: (data: Buffer) => void): this
+  on(event: 'unexpected-response', listener: (request: any, response: any) => void): this
+  ping(data?: any, mask?: boolean, cb?: (err: Error) => void): void
+  terminate(): void
 }
 
 interface DocumentUpdate {
@@ -36,9 +45,11 @@ export function setupWebSocket(server: HttpServer) {
   server.on('upgrade', async (request: IncomingMessage, socket, head) => {
     console.log('Upgrade request received');
     console.log('Connection URL:', request.url);
-    console.log('Headers:', request.headers);
+    console.log('Client IP:', request.socket.remoteAddress);
+    console.log('Headers:', JSON.stringify(request.headers, null, 2));
 
     const { pathname, query } = parseUrl(request.url || '', true);
+    console.log('Parsed URL:', { pathname, query });
     
     // Verify path
     if (pathname !== '/ws' && pathname !== '/websocket') {
@@ -49,6 +60,7 @@ export function setupWebSocket(server: HttpServer) {
 
     // Handle CORS
     const origin = request.headers.origin || null;
+    console.log('Request origin:', origin);
     const allowedOrigins = [
       'http://localhost:3000',
       'https://localhost:3000',
@@ -68,11 +80,43 @@ export function setupWebSocket(server: HttpServer) {
       return;
     }
 
-    // Don't send WebSocket headers manually, let the ws library handle it
     try {
       // Complete the WebSocket upgrade
+      console.log('Attempting WebSocket upgrade...');
       wss.handleUpgrade(request, socket, head, (ws) => {
         console.log('WebSocket connection upgraded successfully');
+        
+        // Monitor socket state
+        const docWs = ws as DocumentWebSocket;
+        docWs.on('error', (error) => {
+          console.error('WebSocket error occurred:', error);
+        });
+
+        docWs.on('close', (code, reason) => {
+          console.log('WebSocket closed:', {
+            code,
+            reason,
+            readyState: docWs.readyState,
+            userId: docWs.userId,
+            documentId: docWs.documentId
+          });
+        });
+
+        docWs.on('unexpected-response', (request, response) => {
+          console.error('Unexpected WebSocket response:', {
+            request: {
+              method: request.method,
+              url: request.url,
+              headers: request.headers
+            },
+            response: {
+              statusCode: response.statusCode,
+              statusMessage: response.statusMessage,
+              headers: response.headers
+            }
+          });
+        });
+
         wss.emit('connection', ws, request);
       });
     } catch (error) {
@@ -82,48 +126,13 @@ export function setupWebSocket(server: HttpServer) {
   });
 
   // Handle connection timeouts
-  wss.on('connection', (ws: WebSocket) => {
-    const docWs = ws as DocumentWebSocket;
-    docWs.isAlive = true;
-
-    // Set up a per-connection timeout
-    const connectionTimeout = setTimeout(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        console.log('Connection timeout - closing connection');
-        ws.close(1000, 'Connection timeout');
-      }
-    }, 60000); // 60 seconds
-
-    // Clear the timeout when the connection closes
-    ws.on('close', () => {
-      clearTimeout(connectionTimeout);
-    });
-
-    // Reset the timeout on any activity
-    ws.on('message', () => {
-      if (connectionTimeout) {
-        clearTimeout(connectionTimeout);
-      }
-    });
-
-    ws.on('pong', () => {
-      if (connectionTimeout) {
-        clearTimeout(connectionTimeout);
-      }
-      docWs.isAlive = true;
-    });
-  });
-
-  wss.on('close', () => {
-    console.log('WebSocket server closing');
-  })
-
-  wss.on('error', (error: Error) => {
-    console.error('WebSocket server error:', error);
-  });
-
   wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
-    console.log('New WebSocket connection attempt');
+    console.log('New WebSocket connection established');
+    console.log('Connection details:', {
+      url: req.url,
+      headers: req.headers,
+      remoteAddress: req.socket.remoteAddress
+    });
     
     const docWs = ws as DocumentWebSocket;
     docWs.isAlive = true;
@@ -150,16 +159,41 @@ export function setupWebSocket(server: HttpServer) {
       // Send initial connection success message first
       console.log('Sending connection success message');
       try {
-        ws.send(JSON.stringify({ 
+        const successMessage = JSON.stringify({ 
           type: 'connected',
           userId: userId,
           documentId: documentId || null
-        }));
+        });
+        console.log('Success message:', successMessage);
+        ws.send(successMessage);
       } catch (error) {
         console.error('Error sending connection success message:', error);
         ws.close(1011, 'Failed to send connection message');
         return;
       }
+
+      // Set up ping interval for this connection
+      const pingInterval = setInterval(() => {
+        if (docWs.readyState === WebSocket.OPEN) {
+          console.log('Sending ping to client');
+          try {
+            docWs.ping();
+          } catch (error) {
+            console.error('Error sending ping:', error);
+            clearInterval(pingInterval);
+            docWs.terminate();
+          }
+        } else {
+          console.log('Connection not open, clearing ping interval');
+          clearInterval(pingInterval);
+        }
+      }, 30000); // Send ping every 30 seconds
+
+      // Clean up interval on close
+      docWs.on('close', () => {
+        console.log('Clearing ping interval on close');
+        clearInterval(pingInterval);
+      });
 
       // Verify document access if documentId is provided
       if (documentId) {

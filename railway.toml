@@ -11,4 +11,7 @@ restartPolicyType = "on_failure"
 [deploy.websocket]
 enabled = true
 path = ["/ws", "/websocket"]
+timeout = 300
+keepAlive = true
+maxConnections = 1000
 
