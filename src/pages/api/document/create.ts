@@ -49,47 +49,95 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Create document
     console.log('Creating document for user:', user.id);
-    const newDocument = await db.$transaction(async (tx) => {
-      // Create the document first
-      const doc = await tx.document.create({
-        data: {
-          title: validatedInput.title,
-          content: validatedInput.content as Prisma.InputJsonValue,
-          users: {
-            connect: { id: user.id }  // Connect user during initial creation
-          },
-          versions: {
-            create: {
-              content: validatedInput.content as Prisma.InputJsonValue,
-              user: { connect: { id: user.id } }
-            }
-          }
+    
+    // Create document with associations in a single operation
+    const newDocument = await db.document.create({
+      data: {
+        title: validatedInput.title,
+        content: validatedInput.content as Prisma.InputJsonValue,
+        users: {
+          connect: { id: user.id }
         },
-        include: {
-          users: true,
-          versions: {
-            orderBy: {
-              createdAt: 'desc'
-            },
-            take: 1,
-            include: {
-              user: true
-            }
+        versions: {
+          create: {
+            content: validatedInput.content as Prisma.InputJsonValue,
+            user: { connect: { id: user.id } }
           }
         }
-      });
-
-      return doc;  // Return document with all associations
+      },
+      include: {
+        users: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        versions: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 1
+        }
+      }
     });
 
-    console.log('Created document:', {
+    // Log the full document with associations for debugging
+    console.log('Created document with associations:', JSON.stringify({
       id: newDocument.id,
       title: newDocument.title,
-      userIds: newDocument.users?.map(u => u.id) || [],
-      versionCount: newDocument.versions?.length || 0
+      users: newDocument.users,
+      versions: newDocument.versions
+    }, null, 2));
+
+    // Double check the associations were created
+    const verifiedDoc = await db.document.findUnique({
+      where: { id: newDocument.id },
+      include: {
+        users: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        versions: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 1
+        }
+      }
     });
 
-    return res.status(200).json(newDocument);
+    if (!verifiedDoc) {
+      throw new Error('Document not found after creation');
+    }
+
+    if (!verifiedDoc.users.some(u => u.id === user.id)) {
+      console.error('User association missing:', {
+        documentId: verifiedDoc.id,
+        userId: user.id,
+        foundUsers: verifiedDoc.users
+      });
+      throw new Error('User association not created');
+    }
+
+    return res.status(200).json(verifiedDoc);
   } catch (err: unknown) {
     console.error('Error creating document:', err);
     
