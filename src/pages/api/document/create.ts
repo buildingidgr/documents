@@ -40,18 +40,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       update: {},
       create: {
         id: userId,
-        name: null, // Can be updated later
+        name: null,
       },
     });
 
     // Validate input
     const validatedInput = documentInputSchema.parse(req.body);
 
-    // Create document
-    console.log('Creating document for user:', user.id);
-    
-    // Create document with associations in a single operation
-    const newDocument = await db.document.create({
+    // Create document with associations
+    const doc = await db.document.create({
       data: {
         title: validatedInput.title,
         content: validatedInput.content as Prisma.InputJsonValue,
@@ -64,7 +61,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             user: { connect: { id: user.id } }
           }
         }
-      },
+      }
+    });
+
+    // Fetch the complete document with associations
+    const documentWithAssociations = await db.document.findUnique({
+      where: { id: doc.id },
       include: {
         users: {
           select: {
@@ -89,55 +91,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     });
 
-    // Log the full document with associations for debugging
-    console.log('Created document with associations:', JSON.stringify({
-      id: newDocument.id,
-      title: newDocument.title,
-      users: newDocument.users,
-      versions: newDocument.versions
-    }, null, 2));
-
-    // Double check the associations were created
-    const verifiedDoc = await db.document.findUnique({
-      where: { id: newDocument.id },
-      include: {
-        users: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        versions: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true
-              }
-            }
-          },
-          orderBy: {
-            createdAt: 'desc'
-          },
-          take: 1
-        }
-      }
-    });
-
-    if (!verifiedDoc) {
+    if (!documentWithAssociations) {
       throw new Error('Document not found after creation');
     }
 
-    if (!verifiedDoc.users.some(u => u.id === user.id)) {
-      console.error('User association missing:', {
-        documentId: verifiedDoc.id,
-        userId: user.id,
-        foundUsers: verifiedDoc.users
-      });
-      throw new Error('User association not created');
-    }
-
-    return res.status(200).json(verifiedDoc);
+    // Return the complete document
+    return res.status(200).json({
+      ...documentWithAssociations,
+      users: documentWithAssociations.users,
+      versions: documentWithAssociations.versions
+    });
   } catch (err: unknown) {
     console.error('Error creating document:', err);
     
@@ -149,11 +112,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
-      const error = err as Prisma.PrismaClientKnownRequestError;
-      return res.status(500).json({ error: `Database error: ${error.message}` });
+      return res.status(500).json({ 
+        error: `Database error: ${(err as Prisma.PrismaClientKnownRequestError).message}` 
+      });
     }
     
-    const error = err instanceof Error ? err.message : 'Internal server error';
-    return res.status(500).json({ error });
+    return res.status(500).json({ 
+      error: err instanceof Error ? err.message : 'Internal server error' 
+    });
   }
 } 
