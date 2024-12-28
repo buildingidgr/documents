@@ -35,6 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const userId = await authenticateUser(token);
 
     // Ensure user exists in database
+    console.log('Creating/updating user:', userId);
     const user = await db.user.upsert({
       where: { id: userId },
       update: {},
@@ -43,11 +44,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         name: null,
       },
     });
+    console.log('User operation result:', JSON.stringify(user, null, 2));
 
     // Validate input
     const validatedInput = documentInputSchema.parse(req.body);
+    console.log('Validated input:', JSON.stringify(validatedInput, null, 2));
 
     // Create document with associations
+    console.log('Creating document with associations for user:', user.id);
     const doc = await db.document.create({
       data: {
         title: validatedInput.title,
@@ -63,8 +67,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
     });
+    console.log('Initial document creation result:', JSON.stringify(doc, null, 2));
 
     // Fetch the complete document with associations
+    console.log('Fetching complete document:', doc.id);
     const documentWithAssociations = await db.document.findUnique({
       where: { id: doc.id },
       include: {
@@ -90,9 +96,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
     });
+    console.log('Document with associations:', JSON.stringify(documentWithAssociations, null, 2));
 
     if (!documentWithAssociations) {
+      console.error('Document not found after creation:', doc.id);
       throw new Error('Document not found after creation');
+    }
+
+    // Verify user association
+    const hasUserAssociation = documentWithAssociations.users.some(u => u.id === user.id);
+    console.log('User association check:', {
+      documentId: doc.id,
+      userId: user.id,
+      hasAssociation: hasUserAssociation,
+      associatedUsers: documentWithAssociations.users
+    });
+
+    if (!hasUserAssociation) {
+      console.error('User association missing, attempting direct query');
+      // Double check with direct query
+      const userAssoc = await db.$queryRaw`
+        SELECT * FROM "_DocumentToUser" 
+        WHERE "A" = ${doc.id} AND "B" = ${user.id}
+      `;
+      console.log('Direct user association query result:', userAssoc);
     }
 
     // Return the complete document
