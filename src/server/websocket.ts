@@ -121,6 +121,9 @@ export function setupWebSocket(server: HttpServer) {
       wss.handleUpgrade(request, socket, head, async (ws) => {
         const docWs = ws as DocumentWebSocket
         docWs.isAlive = true
+        
+        // Track socket state
+        let socketClosed = false
 
         // Set up basic handlers
         docWs.on('pong', () => {
@@ -133,6 +136,7 @@ export function setupWebSocket(server: HttpServer) {
 
         docWs.on('close', (code, reason) => {
           console.log(`Connection closed with code ${code}:`, reason.toString())
+          socketClosed = true
           // Cleanup any document-specific resources here if needed
         })
 
@@ -148,8 +152,15 @@ export function setupWebSocket(server: HttpServer) {
             return
           }
 
-          const userId = await authenticateUser(token)
-          docWs.userId = userId
+          const authResponse = await authenticateUser(token)
+          
+          // Check if socket was closed during authentication
+          if (socketClosed) {
+            console.log('Socket closed during authentication, aborting setup')
+            return
+          }
+          
+          docWs.userId = authResponse
 
           if (documentId) {
             const document = await db.document.findFirst({
@@ -172,13 +183,23 @@ export function setupWebSocket(server: HttpServer) {
             docWs.documentId = documentId
           }
 
-          // Send success message
-          const successMessage = JSON.stringify({
-            type: 'connected',
-            userId: userId,
-            documentId: documentId || null
-          })
-          docWs.send(successMessage)
+          // Send success message if socket is still open
+          if (!socketClosed && docWs.readyState === WebSocket.OPEN) {
+            const successMessage = JSON.stringify({
+              type: 'connected',
+              userId: authResponse,
+              documentId: documentId || null
+            })
+            try {
+              docWs.send(successMessage)
+            } catch (error) {
+              console.log('Failed to send success message:', error)
+              return
+            }
+          } else {
+            console.log('Socket closed or not open, cannot send success message')
+            return
+          }
 
           // Set up message handler
           docWs.on('message', async (message: RawData) => {

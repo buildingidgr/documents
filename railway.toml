@@ -21,7 +21,7 @@ idleTimeout = 120
 proxyProtocol = true
 pingInterval = 30
 pingTimeout = 10
-handshakeTimeout = 30
+handshakeTimeout = 60
 maxMessageSize = "1MB"
 
 [metrics]
