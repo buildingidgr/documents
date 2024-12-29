@@ -159,7 +159,7 @@ export function setupWebSocket(server: HttpServer) {
       transport: rawSocket.transport?.name,
       headers: rawSocket.request?.headers,
       auth: rawSocket.handshake?.auth,
-      state: connectionState,
+      query: rawSocket.handshake?.query,
       timestamp: new Date().toISOString()
     });
 
@@ -230,23 +230,64 @@ export function setupWebSocket(server: HttpServer) {
       }
     };
 
-    // Check for token in handshake auth
-    if (rawSocket.handshake?.auth?.token && !connectionState.authenticationAttempted) {
-      connectionState.authenticationAttempted = true;
-      console.log('Found token in handshake auth:', {
-        socketId: rawSocket.id,
-        tokenLength: rawSocket.handshake.auth.token.length,
-        fullToken: rawSocket.handshake.auth.token,
-        timestamp: new Date().toISOString()
-      });
-      handleAuthentication(rawSocket.handshake.auth.token).catch(error => {
-        console.error('Handshake auth error:', {
+    // Try to get token from various sources
+    const getAuthToken = () => {
+      // Try auth object first
+      if (rawSocket.handshake?.auth?.token) {
+        return rawSocket.handshake.auth.token;
+      }
+
+      // Try query parameters
+      if (rawSocket.handshake?.query?.token) {
+        return rawSocket.handshake.query.token;
+      }
+
+      // Try authorization header
+      const authHeader = rawSocket.request?.headers?.authorization;
+      if (authHeader) {
+        const parts = authHeader.split(' ');
+        if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+          return parts[1];
+        }
+      }
+
+      // Try auth header directly
+      const authToken = rawSocket.request?.headers?.auth;
+      if (authToken) {
+        return authToken;
+      }
+
+      return null;
+    };
+
+    // Check for token in any available source
+    if (!connectionState.authenticationAttempted) {
+      const token = getAuthToken();
+      if (token) {
+        connectionState.authenticationAttempted = true;
+        console.log('Found authentication token:', {
           socketId: rawSocket.id,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          tokenLength: token.length,
+          fullToken: token,
           timestamp: new Date().toISOString()
         });
-        rawSocket.close();
-      });
+        handleAuthentication(token).catch(error => {
+          console.error('Authentication error:', {
+            socketId: rawSocket.id,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            timestamp: new Date().toISOString()
+          });
+          rawSocket.close();
+        });
+      } else {
+        console.log('No authentication token found:', {
+          socketId: rawSocket.id,
+          headers: rawSocket.request?.headers,
+          auth: rawSocket.handshake?.auth,
+          query: rawSocket.handshake?.query,
+          timestamp: new Date().toISOString()
+        });
+      }
     }
 
     // Track handshake completion
