@@ -65,13 +65,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           `;
           console.log('[Document Create] Version table check:', versionTableCheck);
 
-          // Create initial version with debug
+          // Create initial version with explicit ID
           console.log('[Document Create] Attempting to create version...');
           const version = await tx.version.create({
             data: {
+              id: `ver_${doc.id}`, // Explicit ID based on document ID
               content: validatedInput.content as Prisma.InputJsonValue,
-              document: { connect: { id: doc.id } },
-              user: { connect: { id: userId } }
+              documentId: doc.id,  // Direct field assignment
+              userId: userId      // Direct field assignment
             },
             select: {
               id: true,
