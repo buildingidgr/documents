@@ -92,9 +92,15 @@ export function setupWebSocket(server: HttpServer) {
     authenticated: boolean;
   }>();
 
-  // Create Socket.IO server with its own engine instance
+  // Log server state before setup
+  console.log('Server state before Socket.IO setup:', {
+    listeners: server.listeners('upgrade').length,
+    timestamp: new Date().toISOString()
+  });
+
+  // Create Socket.IO server
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
-    path: '/ws',
+    path: '/socket.io', // Change path to avoid conflict with HTTP routes
     cors: {
       origin: [
         'http://localhost:3000',
@@ -131,21 +137,41 @@ export function setupWebSocket(server: HttpServer) {
     // Other options
     allowEIO3: true,
     cookie: false,
-    serveClient: false,
-    // Prevent HTTP server interference
-    httpCompression: false,
-    // Connection handling
-    cleanupEmptyChildNamespaces: true,
-    // Engine options
-    allowRequest: (req, callback) => {
-      // Only allow WebSocket upgrade requests
-      const isWebSocketUpgrade = req.headers.upgrade?.toLowerCase() === 'websocket';
-      if (!isWebSocketUpgrade) {
-        callback('Only WebSocket connections are allowed', false);
-        return;
-      }
-      callback(null, true);
-    }
+    serveClient: false
+  });
+
+  // Log server state after setup
+  console.log('Server state after Socket.IO setup:', {
+    listeners: server.listeners('upgrade').length,
+    path: '/socket.io',
+    timestamp: new Date().toISOString()
+  });
+
+  // Add request logging middleware
+  server.on('request', (req: IncomingMessage, res: ServerResponse) => {
+    console.log('HTTP request received:', {
+      method: req.method,
+      url: req.url,
+      headers: {
+        upgrade: req.headers.upgrade,
+        connection: req.headers.connection,
+        origin: req.headers.origin
+      },
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Add upgrade logging
+  server.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
+    console.log('Upgrade request received:', {
+      url: req.url,
+      headers: {
+        upgrade: req.headers.upgrade,
+        connection: req.headers.connection,
+        origin: req.headers.origin
+      },
+      timestamp: new Date().toISOString()
+    });
   });
 
   // Add authentication middleware
@@ -154,6 +180,7 @@ export function setupWebSocket(server: HttpServer) {
       console.log('Socket connection attempt:', {
         id: socket.id,
         handshake: socket.handshake,
+        enginePath: io.engine.path,
         timestamp: new Date().toISOString()
       });
 
@@ -180,25 +207,6 @@ export function setupWebSocket(server: HttpServer) {
           timestamp: new Date().toISOString()
         });
         return next(new Error('Invalid token'));
-      }
-
-      // Check for existing connection with same userId
-      const existingConnection = Array.from(connections.entries())
-        .find(([_, conn]) => conn.userId === userId);
-
-      if (existingConnection) {
-        const [existingId, _] = existingConnection;
-        console.log('Existing connection found:', {
-          existingId,
-          userId,
-          timestamp: new Date().toISOString()
-        });
-        // Close the existing connection
-        const existingSocket = io.sockets.sockets.get(existingId);
-        if (existingSocket) {
-          existingSocket.disconnect(true);
-        }
-        connections.delete(existingId);
       }
 
       // Store connection info
@@ -235,6 +243,7 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Client connected:', {
       socketId: socket.id,
       userId: socket.data.userId,
+      path: '/socket.io',
       timestamp: new Date().toISOString()
     });
 
@@ -265,6 +274,7 @@ export function setupWebSocket(server: HttpServer) {
         wasAuthenticated: !!socket.data.userId,
         duration: conn ? Date.now() - conn.connectedAt.getTime() : 0,
         lastPing: conn?.lastPing,
+        path: '/socket.io',
         timestamp: new Date().toISOString()
       });
     });
@@ -276,6 +286,7 @@ export function setupWebSocket(server: HttpServer) {
         userId: socket.data.userId,
         error: error.message,
         stack: error.stack,
+        path: '/socket.io',
         timestamp: new Date().toISOString()
       });
     });
@@ -289,6 +300,7 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Client connected to document namespace:', {
       socketId: socket.id,
       userId: socket.data.userId,
+      path: '/socket.io',
       timestamp: new Date().toISOString()
     });
 
