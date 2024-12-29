@@ -85,24 +85,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     id: user.id 
                   } 
                 }
-              },
-              select: {
-                id: true,
-                documentId: true,
-                userId: true
               }
             });
 
-            if (!version) {
-              throw new Error('Version creation failed silently');
-            }
-
-            console.log('[Document Create] Created version:', {
-              id: version.id,
-              documentId: version.documentId,
-              userId: version.userId
+            // Fetch complete document with associations
+            console.log('[Document Create] Fetching complete document...');
+            const fullDoc = await tx.document.findFirstOrThrow({
+              where: { 
+                id: doc.id,
+                users: {
+                  some: {
+                    id: user.id
+                  }
+                }
+              },
+              include: {
+                users: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                },
+                versions: {
+                  select: {
+                    id: true,
+                    content: true,
+                    createdAt: true,
+                    userId: true,
+                    user: {
+                      select: {
+                        id: true,
+                        name: true
+                      }
+                    }
+                  },
+                  orderBy: {
+                    createdAt: 'desc'
+                  },
+                  take: 1
+                }
+              }
             });
 
+            return fullDoc;
           } catch (versionError) {
             console.error('[Document Create] Failed to create version:', 
               versionError instanceof Error ? versionError.message : 'Unknown error',
