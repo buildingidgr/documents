@@ -30,25 +30,14 @@ interface SocketData {
   documentId?: string;
 }
 
-// Update DocumentSocket to use the event interfaces
-interface DocumentSocket extends Socket<
+type DocumentSocket = Socket<
   ClientToServerEvents,
   ServerToClientEvents,
   InterServerEvents,
   SocketData
-> {
+> & {
   userId?: string;
   documentId?: string;
-  handshake: Socket['handshake'];
-  conn: Socket['conn'];
-  nsp: Socket['nsp'];
-  id: string;
-  emit: Socket['emit'];
-  to: Socket['to'];
-  join: Socket['join'];
-  leave: Socket['leave'];
-  on: Socket['on'];
-  removeAllListeners: Socket['removeAllListeners'];
 }
 
 interface DocumentUpdate {
