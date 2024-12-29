@@ -148,43 +148,14 @@ export function setupWebSocket(server: HttpServer) {
 
   const docNamespace = io.of('/document');
 
-  // Handle connections to the document namespace
-  docNamespace.on('connection', (socket: DocumentSocket) => {
-    console.log('Document namespace connection:', {
-      id: socket.id,
-      transport: socket.conn?.transport?.name,
-      headers: socket.handshake.headers,
-      query: socket.handshake.query,
-      auth: socket.handshake.auth
-    });
-
-    // Store connection info
-    activeConnections.set(socket.id, {});
-
-    // Handle disconnection
-    socket.on('disconnect', (reason: string) => {
-      const connectionInfo = activeConnections.get(socket.id);
-      console.log('Client disconnected:', {
-        reason,
-        id: socket.id,
-        userId: connectionInfo?.userId,
-        documentId: connectionInfo?.documentId,
-        transport: socket.conn?.transport?.name
-      });
-
-      // Clean up
-      activeConnections.delete(socket.id);
-      socket.removeAllListeners();
-    });
-  });
-
-  // Authentication middleware
+  // Authentication middleware - this runs first
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     try {
-      console.log('Socket authentication attempt:', {
+      console.log('Socket authentication middleware triggered:', {
         id: socket.id,
         headers: socket.handshake.headers,
-        auth: socket.handshake.auth
+        auth: socket.handshake.auth,
+        transport: socket.conn?.transport?.name
       });
 
       const token = socket.handshake.auth.token || 
@@ -196,7 +167,10 @@ export function setupWebSocket(server: HttpServer) {
       }
 
       try {
+        console.log('Attempting to authenticate token:', token.substring(0, 20) + '...');
         const userId = await authenticateUser(token);
+        console.log('Token authentication result:', { userId, success: !!userId });
+
         if (!userId) {
           console.log('Authentication failed: Invalid token');
           return next(new Error('Invalid token'));
@@ -210,7 +184,7 @@ export function setupWebSocket(server: HttpServer) {
           connectionInfo.userId = userId;
         }
         
-        console.log('Socket authenticated:', {
+        console.log('Socket authenticated successfully:', {
           userId,
           socketId: socket.id,
           transport: socket.conn?.transport?.name
@@ -227,19 +201,51 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
+  // Single connection handler for the document namespace
   docNamespace.on('connection', (socket: DocumentSocket) => {
-    console.log('Client connected:', {
-      userId: socket.data.userId,
-      socketId: socket.id,
-      transport: socket.conn?.transport?.name
+    console.log('Document namespace connection established:', {
+      id: socket.id,
+      userId: socket.data.userId,  // Should be set from auth middleware
+      transport: socket.conn?.transport?.name,
+      headers: socket.handshake.headers,
+      query: socket.handshake.query,
+      auth: socket.handshake.auth
     });
 
+    // Store connection info
+    activeConnections.set(socket.id, {
+      userId: socket.data.userId
+    });
+
+    // Handle disconnection
+    socket.on('disconnect', (reason: string) => {
+      const connectionInfo = activeConnections.get(socket.id);
+      console.log('Client disconnected:', {
+        reason,
+        id: socket.id,
+        userId: connectionInfo?.userId,
+        documentId: connectionInfo?.documentId,
+        transport: socket.conn?.transport?.name
+      });
+
+      // Clean up
+      activeConnections.delete(socket.id);
+      socket.removeAllListeners();
+    });
+
+    // Handle document join
     socket.on('document:join', async (documentId: string) => {
       try {
         if (!socket.data.userId) {
+          console.log('Document join failed: Not authenticated');
           socket.emit('error', { message: 'Not authenticated' });
           return;
         }
+
+        console.log('Document join attempt:', {
+          documentId,
+          userId: socket.data.userId
+        });
 
         // Verify document access
         const document = await db.document.findFirst({
@@ -254,18 +260,37 @@ export function setupWebSocket(server: HttpServer) {
         });
 
         if (!document) {
+          console.log('Document access denied:', {
+            documentId,
+            userId: socket.data.userId
+          });
           socket.emit('error', { message: 'Document access denied' });
           return;
         }
 
         // Leave previous document room if any
         if (socket.data.documentId) {
+          console.log('Leaving previous document:', {
+            previousDocumentId: socket.data.documentId,
+            userId: socket.data.userId
+          });
           socket.leave(socket.data.documentId);
         }
 
         // Join document room
         socket.join(documentId);
         socket.data.documentId = documentId;
+
+        // Update connection info
+        const connectionInfo = activeConnections.get(socket.id);
+        if (connectionInfo) {
+          connectionInfo.documentId = documentId;
+        }
+
+        console.log('Document joined successfully:', {
+          documentId,
+          userId: socket.data.userId
+        });
 
         socket.emit('document:joined', {
           documentId,
