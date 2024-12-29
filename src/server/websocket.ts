@@ -137,8 +137,7 @@ export function setupWebSocket(server: HttpServer) {
     },
     addTrailingSlash: false,  // Prevent redirect issues
     destroyUpgrade: false,    // Keep upgrade requests alive
-    serveClient: false,       // Don't serve client files
-    maxPayload: 1e8          // 100MB max payload
+    serveClient: false        // Don't serve client files
   });
 
   // Create document namespace
