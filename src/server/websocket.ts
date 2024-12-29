@@ -121,36 +121,38 @@ export function setupWebSocket(server: HttpServer) {
     transports: ['websocket'],
     allowUpgrades: false,
     maxHttpBufferSize: 1e8,
-    perMessageDeflate: {
-      threshold: 1024
-    },
-    cleanupEmptyChildNamespaces: true
+    destroyUpgrade: false,
+    serveClient: false,
+    addTrailingSlash: false
   });
+
+  // Create a dedicated namespace for document collaboration
+  const docNamespace = io.of('/document');
 
   // Track connected sockets by user ID
   const connectedSockets = new Map<string, Set<string>>();
 
   // Add error handling for the server
-  io.engine.on('connection_error', (err: Error) => {
+  docNamespace.engine.on('connection_error', (err: Error) => {
     console.error('Connection error:', err);
   });
 
   // Log all engine events for debugging
-  io.engine.on('initial_headers', (headers: any, req: any) => {
+  docNamespace.engine.on('initial_headers', (headers: any, req: any) => {
     console.log('Initial headers:', headers);
   });
 
-  io.engine.on('headers', (headers: any, req: any) => {
+  docNamespace.engine.on('headers', (headers: any, req: any) => {
     console.log('Headers:', headers);
   });
 
   // Add connection event logging
-  io.engine.on('connection', (socket: any) => {
+  docNamespace.engine.on('connection', (socket: any) => {
     console.log('Engine connection event, socket:', socket.id);
   });
 
   // Authentication middleware
-  io.use(async (socket: DocumentSocket, next) => {
+  docNamespace.use(async (socket: DocumentSocket, next) => {
     try {
       console.log('Authenticating socket connection...', {
         auth: socket.handshake.auth,
@@ -194,7 +196,7 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  io.on('connection', async (socket: DocumentSocket) => {
+  docNamespace.on('connection', async (socket: DocumentSocket) => {
     console.log('Client connected:', socket.userId);
 
     // Handle document join
@@ -275,7 +277,6 @@ export function setupWebSocket(server: HttpServer) {
       }
       // Force socket cleanup
       socket.removeAllListeners();
-      socket.disconnect(true);
     });
   });
 
