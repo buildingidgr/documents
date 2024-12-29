@@ -33,9 +33,17 @@ async function main() {
     const app = express();
     const server = createServer(app);
 
+    // Trust proxy
+    app.set('trust proxy', true);
+
     // Add CORS middleware first
     app.use((req: Request, res: Response, next: NextFunction) => {
-      const origin = req.headers.origin || '*';
+      // Get the real origin from X-Forwarded-Host or Origin
+      const origin = req.headers['x-forwarded-host'] || 
+                    req.headers.origin || 
+                    req.headers.host || 
+                    '*';
+      
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
@@ -54,15 +62,18 @@ async function main() {
 
     // Add logging middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
-      // Only log HTTP requests, not WebSocket
-      if (!req.url?.startsWith('/ws')) {
-        console.log('Incoming HTTP request:', {
-          method: req.method,
-          path: req.path,
-          headers: req.headers,
-          query: req.query
-        });
-      }
+      // Log all requests including WebSocket upgrade requests
+      console.log('Incoming request:', {
+        method: req.method,
+        path: req.path,
+        headers: req.headers,
+        query: req.query,
+        ip: req.ip,
+        protocol: req.protocol,
+        secure: req.secure,
+        xhr: req.xhr,
+        originalUrl: req.originalUrl
+      });
       next();
     });
 

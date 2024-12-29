@@ -71,7 +71,33 @@ export function setupWebSocket(server: HttpServer) {
     },
     httpCompression: {
       threshold: 2048
-    }
+    },
+    allowRequest: (req, callback) => {
+      console.log('Socket.IO connection request:', {
+        headers: req.headers,
+        url: req.url,
+        method: req.method
+      });
+      callback(null, true);
+    },
+    cookie: false,
+    allowHeadersFromPayload: true
+  });
+
+  io.engine.on('initial_headers', (headers: any, req: any) => {
+    console.log('Socket.IO initial headers:', {
+      headers,
+      url: req.url,
+      method: req.method
+    });
+  });
+
+  io.engine.on('headers', (headers: any, req: any) => {
+    console.log('Socket.IO headers:', {
+      headers,
+      url: req.url,
+      method: req.method
+    });
   });
 
   io.engine.on('connection_error', (err: Error) => {
