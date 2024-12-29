@@ -14,7 +14,6 @@ interface EngineSocket {
   request?: {
     headers: Record<string, string | string[] | undefined>;
   };
-  disconnect: (close?: boolean) => void;
 }
 
 // Add Socket.IO error types
@@ -69,32 +68,8 @@ export function setupWebSocket(server: HttpServer) {
     connectedAt: Date;
     lastPing?: Date;
     transport: string;
-    namespaces: Set<string>;
-    state: 'connecting' | 'authenticating' | 'authenticated' | 'closed';
-    authTimeout?: ReturnType<typeof setTimeout>;
+    namespaces: Set<string>;  // Track which namespaces this connection is in
   }>();
-
-  // Helper function to get accurate connection stats
-  function getConnectionStats() {
-    const uniqueConnections = new Set(Array.from(connections.values())
-      .filter(conn => conn.lastPing 
-        ? (Date.now() - conn.lastPing.getTime() < 30000) 
-        : (Date.now() - conn.connectedAt.getTime() < 30000))
-    );
-
-    return {
-      total: uniqueConnections.size,
-      authenticated: Array.from(uniqueConnections).filter(c => c.userId).length,
-      byTransport: {
-        websocket: Array.from(uniqueConnections).filter(c => c.transport === 'websocket').length,
-        polling: Array.from(uniqueConnections).filter(c => c.transport === 'polling').length
-      },
-      byNamespace: {
-        document: Array.from(uniqueConnections).filter(c => c.namespaces.has('/document')).length
-      },
-      timestamp: new Date().toISOString()
-    };
-  }
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
     path: '/ws',
@@ -134,29 +109,7 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  const docNamespace = io.of('/document');
-
-  // Track connection attempts before upgrade
-  server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
-    const connectionId = Math.random().toString(36).substring(7);
-    console.log('Pre-upgrade connection attempt:', {
-      id: connectionId,
-      url: req.url,
-      headers: {
-        upgrade: req.headers.upgrade,
-        connection: req.headers.connection,
-        origin: req.headers.origin
-      },
-      timestamp: new Date().toISOString()
-    });
-
-    // Prevent premature socket closure
-    socket.setTimeout(0);
-    socket.setNoDelay(true);
-    socket.setKeepAlive(true, 30000);
-  });
-
-  // Add connection monitoring with state tracking
+  // Add connection monitoring
   io.engine.on('connection', (socket: EngineSocket) => {
     const connInfo = {
       id: socket.id,
@@ -170,145 +123,206 @@ export function setupWebSocket(server: HttpServer) {
     
     console.log('New engine connection:', connInfo);
     
-    // Initialize connection state
-    connections.set(socket.id, {
-      connectedAt: new Date(),
-      transport: socket.transport?.name || 'unknown',
-      namespaces: new Set(),
-      state: 'connecting'
-    });
+    // Only add to connections if it doesn't exist
+    if (!connections.has(socket.id)) {
+      connections.set(socket.id, {
+        connectedAt: new Date(),
+        transport: socket.transport?.name || 'unknown',
+        namespaces: new Set()
+      });
 
-    // Set a timeout for initial authentication
-    const authTimeout = setTimeout(() => {
+      // Log accurate connection stats
+      const stats = getConnectionStats();
+      console.log('Connection stats:', stats);
+    }
+  });
+
+  // Helper function to get accurate connection stats
+  function getConnectionStats() {
+    const uniqueConnections = new Set(Array.from(connections.values())
+      .filter(conn => conn.lastPing 
+        ? (Date.now() - conn.lastPing.getTime() < 30000) 
+        : (Date.now() - conn.connectedAt.getTime() < 30000))
+    );
+
+    return {
+      total: uniqueConnections.size,
+      authenticated: Array.from(uniqueConnections).filter(c => c.userId).length,
+      byTransport: {
+        websocket: Array.from(uniqueConnections).filter(c => c.transport === 'websocket').length,
+        polling: Array.from(uniqueConnections).filter(c => c.transport === 'polling').length
+      },
+      byNamespace: {
+        document: Array.from(uniqueConnections).filter(c => c.namespaces.has('/document')).length
+      },
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  // Monitor ping/pong to track active connections
+  io.engine.on('packet', (packet: any, socket: EngineSocket) => {
+    if (packet.type === 'ping' || packet.type === 'pong') {
       const conn = connections.get(socket.id);
-      if (conn && conn.state === 'connecting') {
-        console.log('Connection authentication timeout:', {
+      if (conn) {
+        conn.lastPing = new Date();
+        connections.set(socket.id, conn);
+        console.log('Ping/Pong received:', {
           socketId: socket.id,
-          state: conn.state,
+          type: packet.type,
           timestamp: new Date().toISOString()
         });
-        socket.disconnect(true);
       }
-    }, 10000); // 10 second timeout for initial authentication
-
-    const conn = connections.get(socket.id);
-    if (conn) {
-      conn.authTimeout = authTimeout;
-      connections.set(socket.id, conn);
     }
+  });
 
-    // Log connection stats
+  // Clean up stale connections periodically
+  setInterval(() => {
+    const now = Date.now();
+    connections.forEach((conn, id) => {
+      const lastActivity = conn.lastPing || conn.connectedAt;
+      // Increase stale timeout to 60 seconds
+      if (now - lastActivity.getTime() > 60000) { // 60 seconds
+        console.log('Removing stale connection:', {
+          socketId: id,
+          userId: conn.userId,
+          lastPing: conn.lastPing?.toISOString(),
+          connectedAt: conn.connectedAt.toISOString(),
+          inactiveFor: Math.floor((now - lastActivity.getTime()) / 1000) + 's',
+          timestamp: new Date().toISOString()
+        });
+        connections.delete(id);
+      }
+    });
+    
+    // Log current stats after cleanup
     const stats = getConnectionStats();
-    console.log('Connection stats:', {
+    console.log('Connection stats after cleanup:', {
       ...stats,
-      engineConnections: io.engine.clientsCount,
+      rawActiveConnections: io.engine.clientsCount,
       namespaceConnections: docNamespace.sockets.size
+    });
+  }, 30000); // Every 30 seconds
+
+  // Add connection event to track namespace connections
+  io.on('connection', (socket: Socket) => {
+    console.log('Main namespace connection:', {
+      socketId: socket.id,
+      transport: socket.conn?.transport?.name,
+      timestamp: new Date().toISOString()
     });
   });
 
-  // Monitor all packet types for connection health
-  io.engine.on('packet', (packet: any, socket: EngineSocket) => {
-    const conn = connections.get(socket.id);
-    if (conn) {
-      conn.lastPing = new Date();
-      
-      // Log packet for debugging
-      console.log('Socket packet:', {
-        socketId: socket.id,
-        type: packet.type,
-        state: conn.state,
-        timestamp: new Date().toISOString()
-      });
-
-      connections.set(socket.id, conn);
-    }
-  });
-
-  // Handle disconnections at engine level
+  // Track disconnections at the engine level
   io.engine.on('close', (socket: EngineSocket) => {
-    const conn = connections.get(socket.id);
-    if (conn) {
-      // Clear any pending timeouts
-      if (conn.authTimeout) {
-        clearTimeout(conn.authTimeout);
-      }
-      
-      console.log('Engine connection closed:', {
-        socketId: socket.id,
-        state: conn.state,
-        duration: Date.now() - conn.connectedAt.getTime(),
-        timestamp: new Date().toISOString()
-      });
-      
-      connections.delete(socket.id);
-    }
+    console.log('Engine connection closed:', {
+      socketId: socket.id,
+      timestamp: new Date().toISOString()
+    });
   });
 
-  // Authentication middleware with state tracking
-  docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
-    const conn = connections.get(socket.id);
-    if (conn) {
-      conn.state = 'authenticating';
-      connections.set(socket.id, conn);
-    }
+  // Add detailed error monitoring
+  io.engine.on('connection_error', (err: SocketError) => {
+    console.error('Engine connection error:', {
+      code: err.code,
+      message: err.message,
+      type: err.type,
+      req: err.req?.url,
+      timestamp: new Date().toISOString(),
+      activeConnections: connections.size
+    });
+  });
 
+  const docNamespace = io.of('/document');
+
+  // Authentication middleware with timeout
+  docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     console.log('Document namespace connection attempt:', {
       socketId: socket.id,
       headers: socket.handshake.headers,
       auth: socket.handshake.auth,
-      connectionState: conn?.state,
       timestamp: new Date().toISOString()
     });
+
+    const authTimeout = setTimeout(() => {
+      console.error('Authentication timeout:', {
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
+      });
+      next(new Error('Authentication timeout'));
+    }, 5000);
 
     try {
       const token = socket.handshake.auth.token || 
                     socket.handshake.headers.authorization?.split(' ')[1];
 
+      console.log('Auth token check:', {
+        socketId: socket.id,
+        hasToken: !!token,
+        authHeader: socket.handshake.headers.authorization,
+        authObject: socket.handshake.auth,
+        timestamp: new Date().toISOString()
+      });
+
       if (!token) {
+        clearTimeout(authTimeout);
         console.log('Authentication failed: No token provided', {
           socketId: socket.id,
-          connectionState: conn?.state
+          headers: socket.handshake.headers,
+          auth: socket.handshake.auth
         });
         return next(new Error('Authentication required'));
       }
 
-      const userId = await authenticateUser(token);
-      
-      if (!userId) {
-        console.log('Authentication failed: Invalid token', {
+      try {
+        console.log('Attempting to authenticate token:', {
           socketId: socket.id,
-          connectionState: conn?.state
+          tokenPrefix: token.substring(0, 10) + '...',
+          timestamp: new Date().toISOString()
         });
-        return next(new Error('Invalid token'));
-      }
 
-      socket.data.userId = userId;
-      if (conn) {
-        conn.userId = userId;
-        conn.state = 'authenticated';
-        conn.namespaces.add('/document');
-        // Clear auth timeout as authentication succeeded
-        if (conn.authTimeout) {
-          clearTimeout(conn.authTimeout);
-          conn.authTimeout = undefined;
+        const userId = await authenticateUser(token);
+        clearTimeout(authTimeout);
+        
+        if (!userId) {
+          console.log('Authentication failed: Invalid token', {
+            socketId: socket.id,
+            timestamp: new Date().toISOString()
+          });
+          return next(new Error('Invalid token'));
         }
-        connections.set(socket.id, conn);
+
+        socket.data.userId = userId;
+        const conn = connections.get(socket.id);
+        if (conn) {
+          conn.userId = userId;
+          conn.namespaces.add('/document');  // Track namespace connection
+          connections.set(socket.id, conn);
+        }
+        
+        console.log('Socket authenticated:', {
+          userId,
+          socketId: socket.id,
+          transport: socket.conn?.transport?.name,
+          activeConnections: connections.size,
+          namespaces: conn?.namespaces.size || 0
+        });
+        
+        next();
+      } catch (error) {
+        clearTimeout(authTimeout);
+        console.error('Socket auth error:', {
+          error,
+          socketId: socket.id,
+          timestamp: new Date().toISOString()
+        });
+        next(new Error('Authentication failed'));
       }
-      
-      console.log('Socket authenticated:', {
-        userId,
-        socketId: socket.id,
-        transport: socket.conn?.transport?.name,
-        connectionState: conn?.state,
-        namespaces: conn?.namespaces.size || 0
-      });
-      
-      next();
     } catch (error) {
-      console.error('Authentication error:', {
-        socketId: socket.id,
+      clearTimeout(authTimeout);
+      console.error('Socket middleware error:', {
         error,
-        connectionState: conn?.state
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
       });
       next(new Error('Authentication failed'));
     }
