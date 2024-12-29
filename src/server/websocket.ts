@@ -79,15 +79,10 @@ export function setupWebSocket(server: HttpServer) {
     cookie: false
   });
 
-  // Track connection attempts
-  const connectionAttempts = new Map<string, number>();
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY = 1000;
+  // Track active connections
+  const activeConnections = new Map<string, { userId?: string; documentId?: string }>();
 
   io.engine.on('connection', (socket) => {
-    // Reset connection attempts on successful connection
-    connectionAttempts.delete(socket.id);
-    
     console.log('Engine.IO connection established:', {
       id: socket.id,
       protocol: socket.protocol,
@@ -133,44 +128,9 @@ export function setupWebSocket(server: HttpServer) {
     });
   });
 
-  // Handle disconnections and reconnection attempts
-  io.use((socket, next) => {
-    socket.on('disconnect', (reason) => {
-      const attempts = connectionAttempts.get(socket.id) || 0;
-      console.log('Socket middleware disconnect:', {
-        id: socket.id,
-        reason,
-        wasConnected: socket.connected,
-        attempts
-      });
-
-      if (attempts < MAX_RETRIES) {
-        // Increment attempts
-        connectionAttempts.set(socket.id, attempts + 1);
-        
-        // Schedule reconnection attempt
-        setTimeout(() => {
-          console.log('Attempting reconnection:', {
-            id: socket.id,
-            attempt: attempts + 1
-          });
-          socket.connect();
-        }, RETRY_DELAY * (attempts + 1));
-      } else {
-        console.log('Max reconnection attempts reached:', {
-          id: socket.id,
-          attempts
-        });
-        connectionAttempts.delete(socket.id);
-        socket.removeAllListeners();
-        socket.disconnect(true);
-      }
-    });
-    next();
-  });
-
   const docNamespace = io.of('/document');
 
+  // Handle connections to the document namespace
   docNamespace.on('connection', (socket: DocumentSocket) => {
     console.log('Document namespace connection:', {
       id: socket.id,
@@ -179,8 +139,28 @@ export function setupWebSocket(server: HttpServer) {
       query: socket.handshake.query,
       auth: socket.handshake.auth
     });
+
+    // Store connection info
+    activeConnections.set(socket.id, {});
+
+    // Handle disconnection
+    socket.on('disconnect', (reason) => {
+      const connectionInfo = activeConnections.get(socket.id);
+      console.log('Client disconnected:', {
+        reason,
+        id: socket.id,
+        userId: connectionInfo?.userId,
+        documentId: connectionInfo?.documentId,
+        transport: socket.conn?.transport?.name
+      });
+
+      // Clean up
+      activeConnections.delete(socket.id);
+      socket.removeAllListeners();
+    });
   });
 
+  // Authentication middleware
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     try {
       console.log('Socket authentication attempt:', {
@@ -205,6 +185,12 @@ export function setupWebSocket(server: HttpServer) {
         }
 
         socket.data.userId = userId;
+        
+        // Update connection info
+        const connectionInfo = activeConnections.get(socket.id);
+        if (connectionInfo) {
+          connectionInfo.userId = userId;
+        }
         
         console.log('Socket authenticated:', {
           userId,
