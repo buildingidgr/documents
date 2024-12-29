@@ -165,29 +165,12 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
-    // Configure transport settings
-    transports: ['websocket', 'polling'],
-    allowUpgrades: true,
-    upgradeTimeout: 10000,
-    // Configure timeouts
+    transports: ['websocket'],
     pingInterval: 10000,
     pingTimeout: 5000,
     connectTimeout: 45000,
-    // Configure connection state recovery
-    connectionStateRecovery: {
-      maxDisconnectionDuration: 2 * 60 * 1000,
-      skipMiddlewares: true,
-    },
-    // Configure perMessageDeflate
-    perMessageDeflate: {
-      threshold: 1024,
-      zlibInflateOptions: {
-        chunkSize: 10 * 1024
-      },
-      zlibDeflateOptions: {
-        level: 6
-      }
-    }
+    allowEIO3: true,
+    maxHttpBufferSize: 1e8
   });
 
   // Create a dedicated namespace for document collaboration
@@ -196,32 +179,50 @@ export function setupWebSocket(server: HttpServer) {
   // Track connected sockets by user ID
   const connectedSockets = new Map<string, Set<string>>();
 
+  // Add error handlers for the server instance
+  io.engine.on('connection_error', (err: Error) => {
+    console.error('Socket.IO connection error:', err);
+  });
+
+  io.engine.on('initial_headers', (headers: any, req: any) => {
+    headers['Access-Control-Allow-Origin'] = req.headers.origin || '*';
+    headers['Access-Control-Allow-Credentials'] = 'true';
+  });
+
   // Authentication middleware for document namespace
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     try {
-      console.log('Authenticating socket connection...', {
-        auth: socket.handshake.auth,
-        headers: socket.handshake.headers,
-        query: socket.handshake.query,
-        id: socket.id,
-        transport: socket.conn?.transport?.name
-      });
-
       const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
       if (!token) {
+        console.log('Authentication failed: No token provided');
         return next(new Error('Authentication required'));
       }
 
-      // Remove 'Bearer ' prefix if present
       const cleanToken = token.replace('Bearer ', '');
       
       try {
         const userId = await authenticateUser(cleanToken);
         if (!userId) {
+          console.log('Authentication failed: Invalid token');
           return next(new Error('Invalid token'));
         }
         
         socket.userId = userId;
+        socket.conn.on('packet', (packet) => {
+          console.log('Received packet:', {
+            type: packet.type,
+            socketId: socket.id,
+            userId: socket.userId
+          });
+        });
+
+        socket.conn.on('error', (error) => {
+          console.error('Socket connection error:', {
+            error,
+            socketId: socket.id,
+            userId: socket.userId
+          });
+        });
 
         // Track the socket connection
         if (!connectedSockets.has(userId)) {
@@ -229,7 +230,7 @@ export function setupWebSocket(server: HttpServer) {
         }
         connectedSockets.get(userId)?.add(socket.id);
 
-        console.log('Socket authenticated:', {
+        console.log('Socket authenticated successfully:', {
           userId,
           socketId: socket.id,
           transport: socket.conn?.transport?.name
@@ -247,7 +248,30 @@ export function setupWebSocket(server: HttpServer) {
   });
 
   docNamespace.on('connection', async (socket: DocumentSocket) => {
-    console.log('Client connected:', socket.userId, 'namespace:', socket.nsp.name);
+    console.log('Client connected to document namespace:', {
+      userId: socket.userId,
+      socketId: socket.id,
+      transport: socket.conn?.transport?.name
+    });
+
+    // Add connection error handler
+    socket.conn.on('error', (error) => {
+      console.error('Socket connection error:', {
+        error,
+        socketId: socket.id,
+        userId: socket.userId
+      });
+    });
+
+    // Add ping timeout handler
+    socket.conn.on('ping timeout', () => {
+      console.log('Ping timeout:', {
+        socketId: socket.id,
+        userId: socket.userId
+      });
+      // Attempt to reconnect
+      socket.conn.connect();
+    });
 
     // Handle document join
     socket.on('document:join', async (documentId: string) => {
@@ -318,9 +342,14 @@ export function setupWebSocket(server: HttpServer) {
     });
 
     // Handle disconnection
-    socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.userId, 'namespace:', socket.nsp.name);
-      // Clean up the socket tracking
+    socket.on('disconnect', (reason) => {
+      console.log('Client disconnected:', {
+        reason,
+        userId: socket.userId,
+        socketId: socket.id,
+        namespace: socket.nsp.name
+      });
+
       if (socket.userId) {
         const userSockets = connectedSockets.get(socket.userId);
         if (userSockets) {
@@ -330,6 +359,7 @@ export function setupWebSocket(server: HttpServer) {
           }
         }
       }
+
       // Force socket cleanup
       socket.removeAllListeners();
     });
