@@ -51,48 +51,24 @@ export function setupWebSocket(server: HttpServer) {
         'http://localhost:3000',
         'https://localhost:3000',
         'https://documents-production.up.railway.app',
-        'https://piehost.com',
-        'http://piehost.com',
-        'https://websocketking.com',
-        'https://www.websocketking.com',
-        'https://postman.com',
-        'https://www.postman.com',
         'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
       ],
-      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      allowedHeaders: [
-        "Authorization", 
-        "Content-Type", 
-        "Origin", 
-        "Accept", 
-        "X-Requested-With",
-        "Access-Control-Request-Method",
-        "Access-Control-Request-Headers"
-      ],
-      credentials: true,
-      maxAge: 86400
+      methods: ["GET", "POST", "OPTIONS"],
+      allowedHeaders: ["Authorization", "Content-Type", "Origin", "Accept"],
+      credentials: true
     },
-    transports: ['polling', 'websocket'],
-    pingInterval: 5000,
-    pingTimeout: 3000,
+    transports: ['websocket'],
+    pingInterval: 10000,
+    pingTimeout: 5000,
     connectTimeout: 10000,
-    allowUpgrades: true,
-    upgradeTimeout: 5000,
+    allowUpgrades: false,
+    upgradeTimeout: 10000,
     allowEIO3: true,
-    perMessageDeflate: false,
-    httpCompression: false,
     allowRequest: (req: IncomingMessage, callback: (err: string | null, success: boolean) => void) => {
-      const isWebSocketRequest = req.headers.upgrade?.toLowerCase() === 'websocket';
-      const isPollingRequest = !isWebSocketRequest;
-      const origin = req.headers.origin;
-      
       console.log('Socket.IO connection request:', {
         headers: req.headers,
         url: req.url,
         method: req.method,
-        isWebSocketRequest,
-        isPollingRequest,
-        origin,
         forwarded: {
           proto: req.headers['x-forwarded-proto'],
           host: req.headers['x-forwarded-host'],
@@ -102,8 +78,7 @@ export function setupWebSocket(server: HttpServer) {
 
       // Always allow the connection
       callback(null, true);
-    },
-    cookie: false
+    }
   });
 
   // Track active connections
