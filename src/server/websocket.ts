@@ -61,18 +61,10 @@ export function setupWebSocket(server: HttpServer) {
     pingInterval: 25000,
     pingTimeout: 10000,
     connectTimeout: 45000,
-    maxHttpBufferSize: 1e8
-  });
-
-  // Handle upgrade requests explicitly
-  server.on('upgrade', (request: IncomingMessage, socket: any, head: Buffer) => {
-    if (request.headers.upgrade?.toLowerCase() !== 'websocket') {
-      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
-      return;
-    }
-
-    // Let Socket.IO handle the upgrade
-    io.engine.handleUpgrade(request, socket, head);
+    maxHttpBufferSize: 1e8,
+    allowUpgrades: true,
+    upgradeTimeout: 10000,
+    allowEIO3: true
   });
 
   const docNamespace = io.of<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>('/document');
