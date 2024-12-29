@@ -39,6 +39,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log('[Document Create] Starting document creation for user:', userId);
 
     try {
+      // Check Version table existence before transaction
+      console.log('[DEBUG] Pre-transaction: Checking Version table...');
+      const versionTableCheck = await db.$queryRaw`
+        SELECT EXISTS (
+          SELECT 1 
+          FROM information_schema.tables 
+          WHERE table_schema = current_schema()
+          AND table_name = 'Version'
+        ) as "exists";
+      `;
+      console.log('[DEBUG] Pre-transaction: Version table check result:', versionTableCheck);
+
+      const schemaCheck = await db.$queryRaw`
+        SELECT table_name, column_name, data_type 
+        FROM information_schema.columns 
+        WHERE table_name = 'Version'
+        AND table_schema = current_schema();
+      `;
+      console.log('[DEBUG] Pre-transaction: Version table schema:', schemaCheck);
+
       // Wrap all database operations in a single transaction with retries
       const result = await db.$transaction(
         async (tx) => {
@@ -55,35 +75,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
           console.log('[Document Create] Created document:', doc.id);
 
-          // Debug: Check if Version table exists with more detailed logging
-          console.log('[DEBUG] Checking Version table existence...');
-          const versionTableCheck = await tx.$queryRaw`
-            SELECT EXISTS (
-              SELECT 1 
-              FROM information_schema.tables 
-              WHERE table_schema = current_schema()
-              AND table_name = 'Version'
-            ) as "exists";
-          `;
-          console.log('[DEBUG] Version table check result:', JSON.stringify(versionTableCheck));
-
-          // Check schema
-          const schemaCheck = await tx.$queryRaw`
-            SELECT table_name, column_name, data_type 
-            FROM information_schema.columns 
-            WHERE table_name = 'Version'
-            AND table_schema = current_schema();
-          `;
-          console.log('[DEBUG] Version table schema:', JSON.stringify(schemaCheck));
-
           // Create initial version with explicit ID and error handling
           try {
-            console.log('[DEBUG] Attempting to create version for document:', {
-              documentId: doc.id,
-              userId: userId,
-              timestamp: new Date().toISOString()
-            });
-
+            console.log('[DEBUG] Creating version for document:', doc.id);
             const version = await tx.version.create({
               data: {
                 id: `ver_${doc.id}`,
@@ -94,20 +88,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             });
 
             if (!version) {
-              console.error('[ERROR] Version creation returned null:', {
-                documentId: doc.id,
-                userId: userId,
-                timestamp: new Date().toISOString()
-              });
               throw new Error(`Failed to create version for document ${doc.id}`);
             }
 
-            console.log('[INFO] Version created successfully:', {
-              documentId: doc.id,
-              versionId: version.id,
-              userId: userId,
-              timestamp: new Date().toISOString()
-            });
+            console.log('[DEBUG] Version created:', version.id);
 
           } catch (versionError) {
             console.error('[ERROR] Failed to create version:', {
