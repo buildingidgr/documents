@@ -129,159 +129,74 @@ export function setupWebSocket(server: HttpServer) {
     },
     // Other options
     allowEIO3: true,
-    cookie: false,
-    // Add connection data parser
-    connectionStateRecovery: {
-      maxDisconnectionDuration: 2 * 60 * 1000,
-      skipMiddlewares: true,
-    }
+    cookie: false
   });
 
-  // Track engine-level events
-  io.engine.on('initial_headers', (headers: any, req: any) => {
-    console.log('Initial headers:', {
-      url: req.url,
-      method: req.method,
-      headers: req.headers,
-      query: req.query,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  io.engine.on('headers', (headers: any, req: any) => {
-    console.log('Headers event:', {
-      url: req.url,
-      method: req.method,
-      headers: req.headers,
-      query: req.query,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // Handle connection directly at engine level
-  io.engine.on('connection', async (rawSocket: any) => {
-    console.log('Engine connection:', {
-      id: rawSocket.id,
-      headers: rawSocket.request?.headers,
-      query: rawSocket.request?._query,
-      handshake: rawSocket.handshake,
-      timestamp: new Date().toISOString()
-    });
-
+  // Add authentication middleware
+  io.use(async (socket, next) => {
     try {
-      // Get auth token from various sources
-      const authHeader = rawSocket.request?.headers?.authorization;
-      const token = authHeader?.startsWith('Bearer ') 
-        ? authHeader.substring(7) 
-        : rawSocket.request?.headers?.auth 
-          || rawSocket.request?._query?.token
-          || rawSocket.handshake?.auth?.token
-          || rawSocket.request?.headers?.['x-auth-token'];
+      console.log('Socket connection attempt:', {
+        id: socket.id,
+        handshake: socket.handshake,
+        timestamp: new Date().toISOString()
+      });
 
+      const token = socket.handshake.auth?.token;
       if (!token) {
-        console.log('No auth token found:', {
-          id: rawSocket.id,
-          headers: rawSocket.request?.headers,
-          query: rawSocket.request?._query,
-          handshake: rawSocket.handshake,
+        console.log('No auth token in handshake:', {
+          id: socket.id,
+          handshake: socket.handshake,
           timestamp: new Date().toISOString()
         });
-
-        // Instead of closing immediately, wait for auth data
-        const authTimeout = setTimeout(() => {
-          console.log('Auth timeout reached:', {
-            id: rawSocket.id,
-            timestamp: new Date().toISOString()
-          });
-          rawSocket.close();
-        }, 5000);
-
-        // Listen for handshake data
-        rawSocket.on('handshake', (handshakeData: any) => {
-          console.log('Handshake received:', {
-            id: rawSocket.id,
-            handshakeData,
-            timestamp: new Date().toISOString()
-          });
-
-          clearTimeout(authTimeout);
-          const handshakeToken = handshakeData?.auth?.token;
-          if (handshakeToken) {
-            handleAuthentication(handshakeToken, rawSocket);
-          } else {
-            console.log('No token in handshake:', {
-              id: rawSocket.id,
-              handshakeData,
-              timestamp: new Date().toISOString()
-            });
-            rawSocket.close();
-          }
-        });
-
-        return;
+        return next(new Error('Authentication required'));
       }
 
-      await handleAuthentication(token, rawSocket);
+      console.log('Authenticating with token:', {
+        id: socket.id,
+        token,
+        timestamp: new Date().toISOString()
+      });
+
+      const userId = await authenticateUser(token);
+      if (!userId) {
+        console.log('Invalid token:', {
+          id: socket.id,
+          timestamp: new Date().toISOString()
+        });
+        return next(new Error('Invalid token'));
+      }
+
+      // Store connection info
+      socket.data.userId = userId;
+      connections.set(socket.id, {
+        userId,
+        connectedAt: new Date(),
+        transport: socket.conn.transport.name,
+        namespaces: new Set(['/document']),
+        engineId: socket.id,
+        authenticated: true
+      });
+
+      console.log('Authentication successful:', {
+        id: socket.id,
+        userId,
+        timestamp: new Date().toISOString()
+      });
+
+      next();
     } catch (error) {
-      console.error('Engine authentication error:', {
-        id: rawSocket.id,
+      console.error('Authentication error:', {
+        id: socket.id,
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString()
       });
-      rawSocket.close();
+      next(new Error('Authentication failed'));
     }
   });
 
-  // Helper function to handle authentication
-  async function handleAuthentication(token: string, rawSocket: any) {
-    console.log('Found auth token:', {
-      id: rawSocket.id,
-      token,
-      timestamp: new Date().toISOString()
-    });
-
-    const userId = await authenticateUser(token);
-    if (!userId) {
-      console.log('Invalid token:', {
-        id: rawSocket.id,
-        timestamp: new Date().toISOString()
-      });
-      rawSocket.close();
-      return;
-    }
-
-    // Store connection info
-    connections.set(rawSocket.id, {
-      userId,
-      connectedAt: new Date(),
-      transport: rawSocket.transport?.name || 'unknown',
-      namespaces: new Set(['/document']),
-      engineId: rawSocket.id,
-      authenticated: true
-    });
-
-    console.log('Engine authentication successful:', {
-      id: rawSocket.id,
-      userId,
-      timestamp: new Date().toISOString()
-    });
-  }
-
   // Monitor all connections
   io.on('connection', (socket: Socket) => {
-    const conn = connections.get(socket.id);
-    if (!conn?.authenticated) {
-      console.log('Unauthenticated connection attempt:', {
-        socketId: socket.id,
-        timestamp: new Date().toISOString()
-      });
-      socket.disconnect(true);
-      return;
-    }
-
-    socket.data.userId = conn.userId;
-    
     console.log('Client connected:', {
       socketId: socket.id,
       userId: socket.data.userId,
