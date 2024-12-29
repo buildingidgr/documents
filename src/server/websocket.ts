@@ -59,29 +59,40 @@ export function setupWebSocket(server: HttpServer) {
         'https://www.postman.com',
         'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
       ],
-      methods: ["GET", "POST", "OPTIONS"],
-      allowedHeaders: ["Authorization", "Content-Type"],
-      credentials: true
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowedHeaders: [
+        "Authorization", 
+        "Content-Type", 
+        "Origin", 
+        "Accept", 
+        "X-Requested-With",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers"
+      ],
+      credentials: true,
+      maxAge: 86400
     },
-    transports: ['websocket'],
+    transports: ['polling', 'websocket'],
     pingInterval: 5000,
     pingTimeout: 3000,
     connectTimeout: 10000,
-    allowUpgrades: false,
+    allowUpgrades: true,
     upgradeTimeout: 5000,
     allowEIO3: true,
     perMessageDeflate: false,
     httpCompression: false,
     allowRequest: (req: IncomingMessage, callback: (err: string | null, success: boolean) => void) => {
       const isWebSocketRequest = req.headers.upgrade?.toLowerCase() === 'websocket';
-      const isProxied = req.headers['x-forwarded-proto'] === 'https';
+      const isPollingRequest = !isWebSocketRequest;
+      const origin = req.headers.origin;
       
       console.log('Socket.IO connection request:', {
         headers: req.headers,
         url: req.url,
         method: req.method,
         isWebSocketRequest,
-        isProxied,
+        isPollingRequest,
+        origin,
         forwarded: {
           proto: req.headers['x-forwarded-proto'],
           host: req.headers['x-forwarded-host'],
@@ -89,6 +100,7 @@ export function setupWebSocket(server: HttpServer) {
         }
       });
 
+      // Always allow the connection
       callback(null, true);
     },
     cookie: false
