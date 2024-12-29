@@ -130,14 +130,6 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  // Let Socket.IO handle its own upgrades
-  io.attach(server, {
-    upgradeTimeout: 10000,
-    pingInterval: 25000,
-    pingTimeout: 20000,
-    transports: ['websocket']
-  });
-
   // Create document namespace with authentication requirement
   const docNamespace = io.of('/document');
 
