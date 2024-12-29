@@ -66,12 +66,8 @@ export function setupWebSocket(server: HttpServer) {
     allowUpgrades: true,
     upgradeTimeout: 10000,
     allowEIO3: true,
-    perMessageDeflate: {
-      threshold: 2048
-    },
-    httpCompression: {
-      threshold: 2048
-    },
+    perMessageDeflate: false,
+    httpCompression: false,
     allowRequest: (req, callback) => {
       console.log('Socket.IO connection request:', {
         headers: req.headers,
@@ -80,13 +76,28 @@ export function setupWebSocket(server: HttpServer) {
       });
       callback(null, true);
     },
-    cookie: false
+    cookie: false,
+    connectRetries: 3,
+    retryDelay: 1000
+  });
+
+  io.engine.on('connection', (socket) => {
+    console.log('Engine.IO connection established:', {
+      id: socket.id,
+      protocol: socket.protocol,
+      request: {
+        url: socket.request.url,
+        headers: socket.request.headers
+      }
+    });
   });
 
   io.engine.on('initial_headers', (headers: any, req: any) => {
     headers['Access-Control-Allow-Origin'] = '*';
     headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
     headers['Access-Control-Allow-Credentials'] = 'true';
+    headers['Connection'] = 'Upgrade';
+    headers['Upgrade'] = 'websocket';
     
     console.log('Socket.IO initial headers:', {
       headers,
@@ -99,6 +110,8 @@ export function setupWebSocket(server: HttpServer) {
     headers['Access-Control-Allow-Origin'] = '*';
     headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
     headers['Access-Control-Allow-Credentials'] = 'true';
+    headers['Connection'] = 'Upgrade';
+    headers['Upgrade'] = 'websocket';
     
     console.log('Socket.IO headers:', {
       headers,
@@ -114,13 +127,29 @@ export function setupWebSocket(server: HttpServer) {
     });
   });
 
+  io.use((socket, next) => {
+    socket.on('disconnect', (reason) => {
+      console.log('Socket middleware disconnect:', {
+        id: socket.id,
+        reason,
+        wasConnected: socket.connected
+      });
+      
+      socket.removeAllListeners();
+      socket.disconnect(true);
+    });
+    next();
+  });
+
   const docNamespace = io.of('/document');
 
-  docNamespace.on('connect', (socket: DocumentSocket) => {
-    console.log('New namespace connection:', {
+  docNamespace.on('connection', (socket: DocumentSocket) => {
+    console.log('Document namespace connection:', {
       id: socket.id,
       transport: socket.conn?.transport?.name,
-      headers: socket.handshake.headers
+      headers: socket.handshake.headers,
+      query: socket.handshake.query,
+      auth: socket.handshake.auth
     });
   });
 
