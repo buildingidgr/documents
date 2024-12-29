@@ -31,15 +31,7 @@ async function main() {
     console.log('Next.js initialization complete');
 
     const app = express();
-    const server = createServer((req, res) => {
-      // Handle WebSocket upgrade requests separately
-      if (req.url?.startsWith('/ws')) {
-        res.statusCode = 400;
-        res.end('WebSocket requests must use the WebSocket protocol');
-        return;
-      }
-      app(req, res);
-    });
+    const server = createServer(app);
 
     // Add CORS middleware first
     app.use((req: Request, res: Response, next: NextFunction) => {
@@ -110,22 +102,6 @@ async function main() {
 
     // Initialize Socket.IO after all middleware
     const io = setupWebSocket(server);
-
-    // Handle WebSocket upgrade requests explicitly
-    server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
-      if (req.url?.startsWith('/ws')) {
-        console.log('WebSocket upgrade request:', {
-          url: req.url,
-          headers: req.headers
-        });
-        
-        // Let Socket.IO handle the upgrade
-        io.engine.handleUpgrade(req, socket, head);
-      } else {
-        // Close the connection for non-WebSocket upgrade requests
-        socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
-      }
-    });
 
     // Let Next.js handle all other routes
     app.all('*', (req: Request, res: Response) => {
