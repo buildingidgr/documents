@@ -165,16 +165,17 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
+    // Only use WebSocket transport
     transports: ['websocket'],
+    // Disable HTTP polling fallback
+    allowHTTP1: false,
+    // Configure timeouts
     pingInterval: 10000,
     pingTimeout: 5000,
     connectTimeout: 45000,
-    allowEIO3: true,
-    maxHttpBufferSize: 1e8,
-    allowUpgrades: true,
-    upgradeTimeout: 10000,
-    destroyUpgradeTimeout: 1000,
-    destroyUpgrade: true
+    // Configure server behavior
+    serveClient: false,
+    maxHttpBufferSize: 1e8
   });
 
   // Create a dedicated namespace for document collaboration
@@ -188,9 +189,20 @@ export function setupWebSocket(server: HttpServer) {
     console.error('Socket.IO connection error:', err);
   });
 
-  io.engine.on('initial_headers', (headers: any, req: any) => {
-    headers['Access-Control-Allow-Origin'] = req.headers.origin || '*';
-    headers['Access-Control-Allow-Credentials'] = 'true';
+  // Handle WebSocket upgrade requests explicitly
+  server.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
+    const isWebSocketRequest = req.headers.upgrade?.toLowerCase() === 'websocket';
+    const isWebSocketPath = req.url?.startsWith('/ws');
+    
+    if (!isWebSocketRequest || !isWebSocketPath) {
+      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+      return;
+    }
+
+    console.log('WebSocket upgrade request:', {
+      path: req.url,
+      headers: req.headers
+    });
   });
 
   // Authentication middleware for document namespace
