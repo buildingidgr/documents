@@ -115,14 +115,18 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ['Authorization', 'Content-Type']
     },
     allowEIO3: true,
-    pingInterval: 15000,
-    pingTimeout: 10000,
-    connectTimeout: 10000,
+    pingInterval: 25000,
+    pingTimeout: 20000,
+    connectTimeout: 20000,
     transports: ['websocket'],
     allowUpgrades: false,
     maxHttpBufferSize: 1e8,
     perMessageDeflate: {
       threshold: 1024
+    },
+    connectionStateRecovery: {
+      maxDisconnectionDuration: 2 * 60 * 1000,
+      skipMiddlewares: true,
     }
   });
 
@@ -150,7 +154,8 @@ export function setupWebSocket(server: HttpServer) {
       console.log('Authenticating socket connection...', {
         auth: socket.handshake.auth,
         headers: socket.handshake.headers,
-        query: socket.handshake.query
+        query: socket.handshake.query,
+        id: socket.id
       });
 
       const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
@@ -168,7 +173,7 @@ export function setupWebSocket(server: HttpServer) {
         }
         
         socket.userId = userId;
-        console.log('Socket authenticated for user:', userId);
+        console.log('Socket authenticated for user:', userId, 'socket:', socket.id);
         next();
       } catch (error) {
         console.error('Token validation error:', error);

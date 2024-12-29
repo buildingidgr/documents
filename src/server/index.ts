@@ -86,27 +86,9 @@ async function main() {
     // Initialize Socket.IO once
     const io = setupWebSocket(server);
 
-    // Handle WebSocket upgrade requests
-    server.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
-      const path = request.url;
-
-      if (!path?.startsWith('/ws')) {
-        socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
-        return;
-      }
-
-      console.log('WebSocket upgrade request received for path:', path);
-    });
-
     // Add health check endpoint
     app.get('/api/healthcheck', (req: Request, res: Response) => {
       res.status(200).json({ status: 'ok' });
-    });
-
-    // Handle WebSocket routes first
-    app.use('/ws', (req: Request, res: Response, next: NextFunction) => {
-      console.log('WebSocket request received:', req.path);
-      next();
     });
 
     // Let Next.js handle all routes except WebSocket
@@ -115,7 +97,7 @@ async function main() {
       if (!req.path.startsWith('/ws')) {
         return handle(req, res);
       }
-      res.status(404).end();
+      next();
     });
 
     // Add error handlers
