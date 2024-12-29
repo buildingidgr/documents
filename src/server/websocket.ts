@@ -117,17 +117,22 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type", "Accept"],
       credentials: true
     },
-    // Start with websocket only, no transport upgrade
-    transports: ['websocket'],
-    // Increase timeouts
+    // Allow both polling and websocket for initial handshake
+    transports: ['polling', 'websocket'],
+    // Connection settings
     pingInterval: 30000,
     pingTimeout: 25000,
     connectTimeout: 60000,
     maxHttpBufferSize: 1e8,
-    // Disable upgrades since we're using websocket only
-    allowUpgrades: false,
-    // Disable compression initially
-    perMessageDeflate: false,
+    // Allow upgrades for Socket.IO handshake
+    allowUpgrades: true,
+    upgradeTimeout: 30000,
+    // Enable compression for better performance
+    perMessageDeflate: {
+      threshold: 1024,
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: true
+    },
     // Other options
     allowEIO3: true,
     cookie: false
@@ -148,7 +153,8 @@ export function setupWebSocket(server: HttpServer) {
       closeReason: null as string | null,
       closeCode: null as string | number | null,
       upgradeAttempts: 0,
-      authenticated: false
+      authenticated: false,
+      handshakeCompleted: false
     };
 
     // Track initial connection
@@ -158,6 +164,17 @@ export function setupWebSocket(server: HttpServer) {
       headers: rawSocket.request?.headers,
       state: connectionState,
       timestamp: new Date().toISOString()
+    });
+
+    // Track handshake completion
+    rawSocket.on('handshake', (handshake: any) => {
+      connectionState.handshakeCompleted = true;
+      console.log('Handshake completed:', {
+        socketId: rawSocket.id,
+        handshake,
+        state: connectionState,
+        timestamp: new Date().toISOString()
+      });
     });
 
     // Track errors with more detail
@@ -186,6 +203,7 @@ export function setupWebSocket(server: HttpServer) {
         timeSinceLastActivity: Date.now() - connectionState.lastActivity,
         wasUpgraded: connectionState.isUpgraded,
         wasAuthenticated: connectionState.authenticated,
+        handshakeCompleted: connectionState.handshakeCompleted,
         transport: rawSocket.transport?.name,
         headers: rawSocket.request?.headers,
         timestamp: new Date().toISOString()
@@ -209,6 +227,15 @@ export function setupWebSocket(server: HttpServer) {
             state: connectionState,
             timestamp: new Date().toISOString()
           });
+
+          // Handle authentication message
+          if (packet.data.charAt(0) === '0' && data.token) {
+            console.log('Authentication token received:', {
+              socketId: rawSocket.id,
+              state: connectionState,
+              timestamp: new Date().toISOString()
+            });
+          }
         } catch (error) {
           console.log('Packet received:', {
             socketId: rawSocket.id,
