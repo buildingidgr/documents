@@ -144,10 +144,12 @@ export function setupWebSocket(server: HttpServer) {
     });
   });
 
+  // Monitor engine-level close events
   io.engine.on('close', (socket: EngineSocket) => {
     console.log('Engine socket closed:', {
       socketId: socket.id,
       transport: socket.transport?.name,
+      headers: socket.request?.headers,
       timestamp: new Date().toISOString()
     });
   });
@@ -162,11 +164,38 @@ export function setupWebSocket(server: HttpServer) {
     });
   });
 
+  // Monitor raw WebSocket events at the engine level
+  io.engine.on('connection', (rawSocket: any) => {
+    console.log('Engine connection established:', {
+      socketId: rawSocket.id,
+      transport: rawSocket.transport?.name,
+      headers: rawSocket.request?.headers,
+      timestamp: new Date().toISOString()
+    });
+
+    // Monitor transport errors at engine level
+    io.engine.on('error', (error: Error) => {
+      console.error('Engine error:', {
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
+    });
+  });
+
   // Create document namespace with authentication requirement
   const docNamespace = io.of('/document');
 
   // Authentication middleware
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
+    console.log('Authentication attempt:', {
+      socketId: socket.id,
+      headers: socket.handshake.headers,
+      query: socket.handshake.query,
+      auth: socket.handshake.auth,
+      timestamp: new Date().toISOString()
+    });
+
     const authTimeout = setTimeout(() => {
       console.error('Authentication timeout:', {
         socketId: socket.id,
@@ -181,7 +210,9 @@ export function setupWebSocket(server: HttpServer) {
       if (!token) {
         clearTimeout(authTimeout);
         console.log('Authentication failed: No token provided', {
-          socketId: socket.id
+          socketId: socket.id,
+          headers: socket.handshake.headers,
+          timestamp: new Date().toISOString()
         });
         return next(new Error('Authentication required'));
       }
@@ -192,7 +223,8 @@ export function setupWebSocket(server: HttpServer) {
         
         if (!userId) {
           console.log('Authentication failed: Invalid token', {
-            socketId: socket.id
+            socketId: socket.id,
+            timestamp: new Date().toISOString()
           });
           return next(new Error('Invalid token'));
         }
@@ -210,18 +242,29 @@ export function setupWebSocket(server: HttpServer) {
         console.log('Socket authenticated:', {
           userId,
           socketId: socket.id,
-          transport: socket.conn.transport.name
+          transport: socket.conn.transport.name,
+          timestamp: new Date().toISOString()
         });
         
         next();
       } catch (error) {
         clearTimeout(authTimeout);
-        console.error('Socket auth error:', error);
+        console.error('Socket auth error:', {
+          socketId: socket.id,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+          timestamp: new Date().toISOString()
+        });
         next(new Error('Authentication failed'));
       }
     } catch (error) {
       clearTimeout(authTimeout);
-      console.error('Socket middleware error:', error);
+      console.error('Socket middleware error:', {
+        socketId: socket.id,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
       next(new Error('Authentication failed'));
     }
   });
