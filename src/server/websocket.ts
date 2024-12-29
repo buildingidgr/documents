@@ -135,14 +135,16 @@ export function setupWebSocket(server: HttpServer) {
 
   // Add global authentication middleware
   io.use(async (socket: Socket, next) => {
-    console.log('Global authentication attempt:', {
-      socketId: socket.id,
-      auth: socket.handshake.auth,
-      headers: socket.handshake.headers,
-      timestamp: new Date().toISOString()
-    });
-
     try {
+      // Log the complete handshake object
+      console.log('Socket handshake details:', {
+        socketId: socket.id,
+        auth: socket.handshake.auth,
+        query: socket.handshake.query,
+        headers: socket.handshake.headers,
+        timestamp: new Date().toISOString()
+      });
+
       // Get token from auth object
       const token = socket.handshake.auth?.token;
       
@@ -150,16 +152,26 @@ export function setupWebSocket(server: HttpServer) {
         console.log('No token in auth object:', {
           socketId: socket.id,
           auth: socket.handshake.auth,
+          query: socket.handshake.query,
+          headers: socket.handshake.headers,
           timestamp: new Date().toISOString()
         });
         return next(new Error('Authentication required'));
       }
+
+      // Log the token we're about to validate
+      console.log('Validating token from handshake:', {
+        socketId: socket.id,
+        token,
+        timestamp: new Date().toISOString()
+      });
 
       const userId = await authenticateUser(token);
       if (!userId) {
         console.log('Invalid token:', {
           socketId: socket.id,
           tokenLength: token.length,
+          token,
           timestamp: new Date().toISOString()
         });
         return next(new Error('Invalid token'));
@@ -179,6 +191,7 @@ export function setupWebSocket(server: HttpServer) {
       console.log('Socket authenticated:', {
         socketId: socket.id,
         userId,
+        token,
         timestamp: new Date().toISOString()
       });
 
@@ -188,6 +201,7 @@ export function setupWebSocket(server: HttpServer) {
         socketId: socket.id,
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
+        handshake: socket.handshake,
         timestamp: new Date().toISOString()
       });
       next(new Error('Authentication failed'));

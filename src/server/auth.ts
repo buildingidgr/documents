@@ -81,7 +81,10 @@ export async function authenticateUser(token?: string): Promise<string> {
   }
 
   try {
-    console.log('Validating token:', token.substring(0, 20) + '...');
+    console.log('Authenticating user with token:', {
+      token,
+      timestamp: new Date().toISOString()
+    });
     
     // Remove 'Bearer ' prefix if present
     const cleanToken = token.replace(/^Bearer\s+/i, '');
@@ -89,6 +92,12 @@ export async function authenticateUser(token?: string): Promise<string> {
     // Use validateToken function for consistency
     const authResponse = await validateToken(cleanToken);
     
+    console.log('Auth response:', {
+      isValid: authResponse.isValid,
+      userId: authResponse.userId,
+      timestamp: new Date().toISOString()
+    });
+
     if (!authResponse.isValid || !authResponse.userId) {
       throw new TRPCError({
         code: 'UNAUTHORIZED',
@@ -105,6 +114,7 @@ export async function authenticateUser(token?: string): Promise<string> {
         stack: error.stack,
         cause: error.cause
       } : error,
+      token,
       timestamp: new Date().toISOString()
     });
     if (error instanceof TRPCError) {
