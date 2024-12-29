@@ -193,16 +193,40 @@ export function setupWebSocket(server: HttpServer) {
     });
 
     // Track all packets for debugging
-    rawSocket.on('packet', (packet: any, next: () => void) => {
+    rawSocket.on('packet', (packet: any) => {
       connectionState.lastActivity = Date.now();
-      console.log('Packet received:', {
-        socketId: rawSocket.id,
-        type: packet.type,
-        data: packet.data,
-        state: connectionState,
-        timestamp: new Date().toISOString()
-      });
-      next();
+      
+      // Log the packet details
+      if (packet.type === 'message') {
+        try {
+          // Try to parse the data if it's a message
+          const data = typeof packet.data === 'string' ? JSON.parse(packet.data.substring(1)) : packet.data;
+          console.log('Message packet received:', {
+            socketId: rawSocket.id,
+            type: packet.type,
+            messageType: packet.data.charAt(0),
+            data,
+            state: connectionState,
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          console.log('Packet received:', {
+            socketId: rawSocket.id,
+            type: packet.type,
+            data: packet.data,
+            state: connectionState,
+            timestamp: new Date().toISOString()
+          });
+        }
+      } else {
+        console.log('Packet received:', {
+          socketId: rawSocket.id,
+          type: packet.type,
+          data: packet.data,
+          state: connectionState,
+          timestamp: new Date().toISOString()
+        });
+      }
     });
   });
 
