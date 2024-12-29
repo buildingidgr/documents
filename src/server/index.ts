@@ -93,12 +93,12 @@ async function main() {
 
     // Let Next.js handle all routes except WebSocket
     app.all('*', (req: Request, res: Response) => {
-      console.log('Handling request:', req.path);
-      if (!req.path.startsWith('/ws')) {
-        return handle(req, res);
+      // Skip handling WebSocket paths completely
+      if (req.path.startsWith('/ws')) {
+        return;
       }
-      // For WebSocket paths, just end the response
-      res.end();
+      // Let Next.js handle all other paths
+      return handle(req, res);
     });
 
     // Add error handlers
