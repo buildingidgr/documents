@@ -76,12 +76,18 @@ export function setupWebSocket(server: HttpServer) {
       });
       callback(null, true);
     },
-    cookie: false,
-    connectRetries: 3,
-    retryDelay: 1000
+    cookie: false
   });
 
+  // Track connection attempts
+  const connectionAttempts = new Map<string, number>();
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 1000;
+
   io.engine.on('connection', (socket) => {
+    // Reset connection attempts on successful connection
+    connectionAttempts.delete(socket.id);
+    
     console.log('Engine.IO connection established:', {
       id: socket.id,
       protocol: socket.protocol,
@@ -127,16 +133,38 @@ export function setupWebSocket(server: HttpServer) {
     });
   });
 
+  // Handle disconnections and reconnection attempts
   io.use((socket, next) => {
     socket.on('disconnect', (reason) => {
+      const attempts = connectionAttempts.get(socket.id) || 0;
       console.log('Socket middleware disconnect:', {
         id: socket.id,
         reason,
-        wasConnected: socket.connected
+        wasConnected: socket.connected,
+        attempts
       });
-      
-      socket.removeAllListeners();
-      socket.disconnect(true);
+
+      if (attempts < MAX_RETRIES) {
+        // Increment attempts
+        connectionAttempts.set(socket.id, attempts + 1);
+        
+        // Schedule reconnection attempt
+        setTimeout(() => {
+          console.log('Attempting reconnection:', {
+            id: socket.id,
+            attempt: attempts + 1
+          });
+          socket.connect();
+        }, RETRY_DELAY * (attempts + 1));
+      } else {
+        console.log('Max reconnection attempts reached:', {
+          id: socket.id,
+          attempts
+        });
+        connectionAttempts.delete(socket.id);
+        socket.removeAllListeners();
+        socket.disconnect(true);
+      }
     });
     next();
   });
