@@ -1,6 +1,5 @@
-import { createServer, IncomingMessage } from 'http';
+import { createServer } from 'http';
 import express, { Request, Response, NextFunction } from 'express';
-import { Socket } from 'net';
 import next from 'next';
 import { setupWebSocket } from './websocket';
 import { db } from './db';
@@ -13,17 +12,6 @@ const nextApp = next({
 });
 const handle = nextApp.getRequestHandler();
 
-// Add type for the extended Request
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-      };
-    }
-  }
-}
-
 async function main() {
   try {
     await nextApp.prepare();
@@ -35,8 +23,20 @@ async function main() {
     // Initialize Socket.IO before any middleware
     const io = setupWebSocket(server);
 
-    // Add CORS middleware
+    // Skip middleware for WebSocket requests
     app.use((req: Request, res: Response, next: NextFunction) => {
+      const isWebSocketRequest = (
+        req.headers.upgrade === 'websocket' ||
+        req.headers['sec-websocket-key'] ||
+        req.url.startsWith('/ws')
+      );
+
+      if (isWebSocketRequest) {
+        next();
+        return;
+      }
+
+      // Add CORS middleware for HTTP requests only
       const origin = req.headers.origin || '*';
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -47,16 +47,32 @@ async function main() {
         res.status(200).end();
         return;
       }
-      next();
+
+      // Add body parsing middleware for HTTP requests only
+      express.json()(req, res, (err) => {
+        if (err) {
+          console.error('Body parsing error:', err);
+          next(err);
+          return;
+        }
+        express.urlencoded({ extended: true })(req, res, next);
+      });
     });
 
-    // Add body parsing middleware
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
-
-    // Add logging middleware
+    // Add logging middleware for HTTP requests only
     app.use((req: Request, res: Response, next: NextFunction) => {
-      console.log('Incoming request:', {
+      const isWebSocketRequest = (
+        req.headers.upgrade === 'websocket' ||
+        req.headers['sec-websocket-key'] ||
+        req.url.startsWith('/ws')
+      );
+
+      if (isWebSocketRequest) {
+        next();
+        return;
+      }
+
+      console.log('Incoming HTTP request:', {
         method: req.method,
         path: req.path,
         headers: req.headers,
@@ -65,8 +81,19 @@ async function main() {
       next();
     });
 
-    // Add authentication middleware
+    // Add authentication middleware for HTTP requests only
     app.use(async (req: Request, res: Response, next: NextFunction) => {
+      const isWebSocketRequest = (
+        req.headers.upgrade === 'websocket' ||
+        req.headers['sec-websocket-key'] ||
+        req.url.startsWith('/ws')
+      );
+
+      if (isWebSocketRequest) {
+        next();
+        return;
+      }
+
       try {
         const token = req.headers.authorization?.split(' ')[1];
         if (!token) {
