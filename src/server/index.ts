@@ -5,6 +5,17 @@ import { setupWebSocket } from './websocket';
 import { db } from './db';
 import { authenticateUser } from './auth';
 
+// Add type for the extended Request
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        id: string;
+      };
+    }
+  }
+}
+
 const dev = process.env.NODE_ENV !== 'production';
 const nextApp = next({ 
   dev,
@@ -49,7 +60,7 @@ async function main() {
       }
 
       // Add body parsing middleware for HTTP requests only
-      express.json()(req, res, (err) => {
+      express.json()(req, res, (err: Error | null) => {
         if (err) {
           console.error('Body parsing error:', err);
           next(err);
