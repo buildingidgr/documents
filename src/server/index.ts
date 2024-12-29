@@ -99,6 +99,7 @@ async function main() {
           return;
         }
         // Let Socket.IO handle the upgrade
+        io.engine.handleUpgrade(request, socket, head);
         return;
       }
 
@@ -112,7 +113,7 @@ async function main() {
     });
 
     // Let Next.js handle API routes
-    app.all('/api/*', (req: Request, res: Response) => {
+    app.all('/api/*', (req: Request, res: Response, next: NextFunction) => {
       if (req.path === '/api/healthcheck') {
         return next();
       }
@@ -121,7 +122,7 @@ async function main() {
     });
 
     // Let Next.js handle all other routes
-    app.all('*', (req: Request, res: Response) => {
+    app.all('*', (req: Request, res: Response, next: NextFunction) => {
       if (req.path === '/ws') {
         return next();
       }
