@@ -32,90 +32,90 @@ async function main() {
     const app = express();
     const server = createServer(app);
 
-    // Add body parsing middleware
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
+    // Initialize Socket.IO first, before any middleware
+    const io = setupWebSocket(server);
+
+    // Add body parsing middleware for non-websocket paths
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (!req.url?.startsWith('/ws')) {
+        express.json()(req, res, next);
+      } else {
+        next();
+      }
+    });
+
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (!req.url?.startsWith('/ws')) {
+        express.urlencoded({ extended: true })(req, res, next);
+      } else {
+        next();
+      }
+    });
 
     // Add logging middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
-      // Skip logging for WebSocket requests
-      if (req.headers.upgrade === 'websocket') {
-        return next();
+      if (!req.url?.startsWith('/ws')) {
+        console.log('Incoming request:', {
+          method: req.method,
+          path: req.path,
+          headers: req.headers,
+          query: req.query
+        });
       }
-      console.log('Incoming request:', {
-        method: req.method,
-        path: req.path,
-        headers: req.headers,
-        query: req.query
-      });
       next();
     });
 
     // Add CORS middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
-      // Skip CORS for WebSocket upgrade requests
-      if (req.headers.upgrade === 'websocket') {
-        return next();
-      }
-
-      // Handle CORS for HTTP requests
-      const origin = req.headers.origin || '*';
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-      res.header('Access-Control-Allow-Credentials', 'true');
-      
-      if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
+      if (!req.url?.startsWith('/ws')) {
+        const origin = req.headers.origin || '*';
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        res.header('Access-Control-Allow-Credentials', 'true');
+        
+        if (req.method === 'OPTIONS') {
+          res.status(200).end();
+          return;
+        }
       }
       next();
     });
 
     // Add authentication middleware
     app.use(async (req: Request, res: Response, next: NextFunction) => {
-      // Skip auth middleware for WebSocket requests
-      if (req.headers.upgrade === 'websocket') {
-        return next();
-      }
+      if (!req.url?.startsWith('/ws')) {
+        try {
+          const token = req.headers.authorization?.split(' ')[1];
+          if (!token) {
+            next();
+            return;
+          }
 
-      try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) {
-          next();
-          return;
+          console.log('Validating token:', token.substring(0, 20) + '...');
+          const userId = await authenticateUser(token);
+          console.log('Token validation response:', { isValid: !!userId, userId });
+          
+          if (userId) {
+            req.user = { id: userId };
+          }
+        } catch (error) {
+          console.error('Auth error:', error);
         }
-
-        console.log('Validating token:', token.substring(0, 20) + '...');
-        const userId = await authenticateUser(token);
-        console.log('Token validation response:', { isValid: !!userId, userId });
-        
-        if (userId) {
-          req.user = { id: userId };
-        }
-        next();
-      } catch (error) {
-        console.error('Auth error:', error);
-        next();
       }
+      next();
     });
-
-    // Initialize Socket.IO once
-    const io = setupWebSocket(server);
 
     // Add health check endpoint
     app.get('/api/healthcheck', (req: Request, res: Response) => {
       res.status(200).json({ status: 'ok' });
     });
 
-    // Let Next.js handle all routes except WebSocket
+    // Let Next.js handle all non-websocket routes
     app.all('*', (req: Request, res: Response) => {
-      // Let Socket.IO handle WebSocket upgrade requests
-      if (req.headers.upgrade === 'websocket') {
-        return;
+      if (!req.url?.startsWith('/ws')) {
+        return handle(req, res);
       }
-      // Let Next.js handle all other paths
-      return handle(req, res);
     });
 
     // Add error handlers
