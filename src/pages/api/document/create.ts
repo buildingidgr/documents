@@ -63,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           });
 
           // Fetch complete document with associations
-          return await tx.document.findFirstOrThrow({
+          const fullDoc = await tx.document.findFirstOrThrow({
             where: { 
               id: doc.id,
               users: {
@@ -99,6 +99,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               }
             }
           });
+
+          // Verify version was created
+          if (!fullDoc.versions || fullDoc.versions.length === 0) {
+            throw new Error('Version was not created');
+          }
+
+          return fullDoc;
         },
         {
           maxWait: 5000,
