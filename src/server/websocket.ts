@@ -124,11 +124,12 @@ export function setupWebSocket(server: HttpServer) {
     perMessageDeflate: {
       threshold: 1024
     },
-    connectionStateRecovery: {
-      maxDisconnectionDuration: 2 * 60 * 1000,
-      skipMiddlewares: true,
-    }
+    cleanupEmptyChildNamespaces: true,
+    connectionStateRecovery: false // Disable state recovery to force clean reconnects
   });
+
+  // Track connected sockets by user ID
+  const connectedSockets = new Map<string, Set<string>>();
 
   // Add error handling for the server
   io.engine.on('connection_error', (err: Error) => {
@@ -144,17 +145,9 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Headers:', headers);
   });
 
-  io.engine.on('upgrade', (req: any) => {
-    console.log('Engine upgrade event:', req.url);
-  });
-
   // Add connection event logging
   io.engine.on('connection', (socket: any) => {
     console.log('Engine connection event, socket:', socket.id);
-  });
-
-  io.engine.on('handshake', (handshake: any) => {
-    console.log('Engine handshake event:', handshake.id);
   });
 
   // Authentication middleware
@@ -183,6 +176,13 @@ export function setupWebSocket(server: HttpServer) {
         }
         
         socket.userId = userId;
+
+        // Track the socket connection
+        if (!connectedSockets.has(userId)) {
+          connectedSockets.set(userId, new Set());
+        }
+        connectedSockets.get(userId)?.add(socket.id);
+
         console.log('Socket authenticated for user:', userId, 'socket:', socket.id);
         next();
       } catch (error) {
@@ -264,15 +264,19 @@ export function setupWebSocket(server: HttpServer) {
     // Handle disconnection
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.userId);
-      if (socket.documentId) {
-        // Notify other clients in the room
-        socket.to(socket.documentId).emit('document:presence', {
-          type: 'presence',
-          userId: socket.userId,
-          documentId: socket.documentId,
-          data: { status: 'offline' }
-        });
+      // Clean up the socket tracking
+      if (socket.userId) {
+        const userSockets = connectedSockets.get(socket.userId);
+        if (userSockets) {
+          userSockets.delete(socket.id);
+          if (userSockets.size === 0) {
+            connectedSockets.delete(socket.userId);
+          }
+        }
       }
+      // Force socket cleanup
+      socket.removeAllListeners();
+      socket.disconnect(true);
     });
   });
 
