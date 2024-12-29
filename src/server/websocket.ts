@@ -160,9 +160,24 @@ export function setupWebSocket(server: HttpServer) {
 
   const docNamespace = io.of('/document');
 
-  // Log namespace connection attempts
-  docNamespace.on('connection_error', (error: Error) => {
-    console.error('Document namespace connection error:', {
+  // Log namespace errors using the correct events
+  docNamespace.on('connect_error', (error: Error) => {
+    console.error('Document namespace connect error:', {
+      message: error.message,
+      stack: error.stack
+    });
+  });
+
+  docNamespace.on('connect_failed', (error: Error) => {
+    console.error('Document namespace connect failed:', {
+      message: error.message,
+      stack: error.stack
+    });
+  });
+
+  // Add error event to our ServerToClientEvents interface
+  docNamespace.on('error', (error: Error) => {
+    console.error('Document namespace error:', {
       message: error.message,
       stack: error.stack
     });
