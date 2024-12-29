@@ -4,20 +4,39 @@ import { db } from './db';
 import { authenticateUser } from './auth';
 import { Prisma } from '@prisma/client';
 
-interface DocumentSocket extends Socket {
+// Define custom events
+interface ServerToClientEvents {
+  'error': (data: { message: string }) => void;
+  'document:joined': (data: { documentId: string; userId: string }) => void;
+  'document:update': (data: DocumentUpdate) => void;
+  'document:cursor': (data: DocumentUpdate) => void;
+  'document:presence': (data: DocumentUpdate) => void;
+}
+
+interface ClientToServerEvents {
+  'document:join': (documentId: string) => void;
+  'document:update': (data: DocumentUpdate) => void;
+  'document:cursor': (data: DocumentUpdate) => void;
+  'document:presence': (data: DocumentUpdate) => void;
+  'disconnect': () => void;
+}
+
+interface InterServerEvents {
+  ping: () => void;
+}
+
+interface SocketData {
   userId?: string;
   documentId?: string;
-  handshake: Socket['handshake'];
-  conn: Socket['conn'];
-  nsp: Socket['nsp'];
-  id: string;
-  emit: Socket['emit'];
-  to: Socket['to'];
-  join: Socket['join'];
-  leave: Socket['leave'];
-  on: Socket['on'];
-  removeAllListeners: Socket['removeAllListeners'];
 }
+
+// Update DocumentSocket to use the event interfaces
+type DocumentSocket = Socket<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>;
 
 interface DocumentUpdate {
   type: 'update' | 'cursor' | 'presence';
@@ -105,7 +124,12 @@ async function handlePresenceUpdate(
 export function setupWebSocket(server: HttpServer) {
   console.log('Setting up Socket.IO server...');
 
-  const io = new Server(server, {
+  const io = new Server<
+    ClientToServerEvents,
+    ServerToClientEvents,
+    InterServerEvents,
+    SocketData
+  >(server, {
     path: '/ws',
     cors: {
       origin: [
@@ -132,7 +156,7 @@ export function setupWebSocket(server: HttpServer) {
     allowUpgrades: true,
     maxHttpBufferSize: 1e8,
     // Railway proxy settings
-    allowRequest: (req, callback) => {
+    allowRequest: (req: IncomingMessage, callback: (err: string | null | undefined, success: boolean) => void) => {
       callback(null, true); // Allow all requests through
     },
     // Trust Railway's proxy
@@ -197,7 +221,7 @@ export function setupWebSocket(server: HttpServer) {
   const connectedSockets = new Map<string, Set<string>>();
 
   // Authentication middleware for document namespace
-  docNamespace.use(async (socket: DocumentSocket, next) => {
+  docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     try {
       console.log('Authenticating socket connection...', {
         auth: socket.handshake.auth,
