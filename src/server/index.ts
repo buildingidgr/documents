@@ -30,80 +30,73 @@ async function main() {
     console.log('Next.js initialization complete');
 
     const app = express();
-    const server = createServer(app);
+    const server = createServer((req, res) => {
+      const path = req.url || '';
+      
+      // Let Socket.IO handle its own paths
+      if (path.startsWith('/ws')) {
+        res.writeHead(404).end();
+        return;
+      }
 
-    // Initialize Socket.IO first, before any middleware
+      // Let Express handle everything else
+      app.handle(req, res);
+    });
+
+    // Initialize Socket.IO with its own handling
     const io = setupWebSocket(server);
 
-    // Add body parsing middleware for non-websocket paths
-    app.use((req: Request, res: Response, next: NextFunction) => {
-      if (!req.url?.startsWith('/ws')) {
-        express.json()(req, res, next);
-      } else {
-        next();
-      }
-    });
-
-    app.use((req: Request, res: Response, next: NextFunction) => {
-      if (!req.url?.startsWith('/ws')) {
-        express.urlencoded({ extended: true })(req, res, next);
-      } else {
-        next();
-      }
-    });
+    // Add body parsing middleware
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
 
     // Add logging middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
-      if (!req.url?.startsWith('/ws')) {
-        console.log('Incoming request:', {
-          method: req.method,
-          path: req.path,
-          headers: req.headers,
-          query: req.query
-        });
-      }
+      console.log('Incoming request:', {
+        method: req.method,
+        path: req.path,
+        headers: req.headers,
+        query: req.query
+      });
       next();
     });
 
     // Add CORS middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
-      if (!req.url?.startsWith('/ws')) {
-        const origin = req.headers.origin || '*';
-        res.header('Access-Control-Allow-Origin', origin);
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-        res.header('Access-Control-Allow-Credentials', 'true');
-        
-        if (req.method === 'OPTIONS') {
-          res.status(200).end();
-          return;
-        }
+      const origin = req.headers.origin || '*';
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+      res.header('Access-Control-Allow-Credentials', 'true');
+      
+      if (req.method === 'OPTIONS') {
+        res.status(200).end();
+        return;
       }
       next();
     });
 
     // Add authentication middleware
     app.use(async (req: Request, res: Response, next: NextFunction) => {
-      if (!req.url?.startsWith('/ws')) {
-        try {
-          const token = req.headers.authorization?.split(' ')[1];
-          if (!token) {
-            next();
-            return;
-          }
-
-          console.log('Validating token:', token.substring(0, 20) + '...');
-          const userId = await authenticateUser(token);
-          console.log('Token validation response:', { isValid: !!userId, userId });
-          
-          if (userId) {
-            req.user = { id: userId };
-          }
-        } catch (error) {
-          console.error('Auth error:', error);
+      try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+          next();
+          return;
         }
+
+        console.log('Validating token:', token.substring(0, 20) + '...');
+        const userId = await authenticateUser(token);
+        console.log('Token validation response:', { isValid: !!userId, userId });
+        
+        if (userId) {
+          req.user = { id: userId };
+        }
+        next();
+      } catch (error) {
+        console.error('Auth error:', error);
+        next();
       }
-      next();
     });
 
     // Add health check endpoint
@@ -111,11 +104,9 @@ async function main() {
       res.status(200).json({ status: 'ok' });
     });
 
-    // Let Next.js handle all non-websocket routes
+    // Let Next.js handle all other routes
     app.all('*', (req: Request, res: Response) => {
-      if (!req.url?.startsWith('/ws')) {
-        return handle(req, res);
-      }
+      return handle(req, res);
     });
 
     // Add error handlers
