@@ -110,7 +110,7 @@ export function setupWebSocket(server: HttpServer) {
   });
 
   // Add connection monitoring
-  io.engine.on('connection', (socket: EngineSocket) => {
+  io.engine.on('connection', (socket: EngineSocket & { request: IncomingMessage }) => {
     const connInfo = {
       id: socket.id,
       transport: socket.transport?.name,
@@ -134,6 +134,37 @@ export function setupWebSocket(server: HttpServer) {
       // Log accurate connection stats
       const stats = getConnectionStats();
       console.log('Connection stats:', stats);
+    }
+
+    // Add connection timeout
+    const connectionTimeout = setTimeout(() => {
+      if (connections.has(socket.id)) {
+        const conn = connections.get(socket.id);
+        if (conn && !conn.userId) {  // Only timeout unauthenticated connections
+          console.log('Connection timeout - no authentication attempt:', {
+            socketId: socket.id,
+            duration: Date.now() - conn.connectedAt.getTime(),
+            timestamp: new Date().toISOString()
+          });
+          connections.delete(socket.id);
+        }
+      }
+    }, 10000); // 10 second timeout for authentication attempt
+
+    // Handle cleanup
+    const cleanup = () => {
+      clearTimeout(connectionTimeout);
+      connections.delete(socket.id);
+    };
+
+    // Clear timeout on authentication or disconnection
+    io.of('/document').on('connection', (socket: DocumentSocket) => {
+      clearTimeout(connectionTimeout);
+    });
+
+    // Handle socket closure
+    if (socket.request && socket.request.socket) {
+      socket.request.socket.once('close', cleanup);
     }
   });
 
@@ -214,10 +245,17 @@ export function setupWebSocket(server: HttpServer) {
 
   // Track disconnections at the engine level
   io.engine.on('close', (socket: EngineSocket) => {
-    console.log('Engine connection closed:', {
-      socketId: socket.id,
-      timestamp: new Date().toISOString()
-    });
+    const conn = connections.get(socket.id);
+    if (conn) {
+      console.log('Engine connection closed:', {
+        socketId: socket.id,
+        userId: conn.userId,
+        authenticated: !!conn.userId,
+        duration: Date.now() - conn.connectedAt.getTime(),
+        namespaces: Array.from(conn.namespaces),
+        timestamp: new Date().toISOString()
+      });
+    }
   });
 
   // Add detailed error monitoring
@@ -454,6 +492,26 @@ export function setupWebSocket(server: HttpServer) {
           data: { status: 'offline' }
         });
       }
+    });
+  });
+
+  // Add middleware for all namespaces
+  io.use((socket: Socket, next: (err?: Error) => void) => {
+    console.log('Global middleware - connection attempt:', {
+      socketId: socket.id,
+      transport: socket.conn?.transport?.name,
+      headers: socket.handshake.headers,
+      timestamp: new Date().toISOString()
+    });
+    next();
+  });
+
+  // Add error handling for the engine
+  io.engine.on('error', (err: Error) => {
+    console.error('Engine error:', {
+      error: err.message,
+      stack: err.stack,
+      timestamp: new Date().toISOString()
     });
   });
 
