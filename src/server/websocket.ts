@@ -92,12 +92,7 @@ export function setupWebSocket(server: HttpServer) {
     authenticated: boolean;
   }>();
 
-  // Rate limiting for connections
-  const connectionAttempts = new Map<string, { count: number; firstAttempt: number }>();
-  const RATE_LIMIT_WINDOW = 60000; // 1 minute
-  const MAX_ATTEMPTS = 5;
-
-  // Create Socket.IO server
+  // Create Socket.IO server with its own engine instance
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
     path: '/ws',
     cors: {
@@ -125,7 +120,7 @@ export function setupWebSocket(server: HttpServer) {
     connectTimeout: 10000,
     maxHttpBufferSize: 1e8,
     // Socket.IO options
-    allowUpgrades: true,
+    allowUpgrades: false,
     upgradeTimeout: 10000,
     // Enable compression
     perMessageDeflate: {
@@ -140,37 +135,17 @@ export function setupWebSocket(server: HttpServer) {
     // Prevent HTTP server interference
     httpCompression: false,
     // Connection handling
-    cleanupEmptyChildNamespaces: true
-  });
-
-  // Add connection rate limiting middleware
-  io.use((socket, next) => {
-    const clientIp = socket.handshake.headers['x-forwarded-for'] as string || 
-                    socket.handshake.headers['x-real-ip'] as string || 
-                    socket.handshake.address;
-
-    const now = Date.now();
-    const attempts = connectionAttempts.get(clientIp) || { count: 0, firstAttempt: now };
-
-    // Reset attempts if outside window
-    if (now - attempts.firstAttempt > RATE_LIMIT_WINDOW) {
-      attempts.count = 0;
-      attempts.firstAttempt = now;
+    cleanupEmptyChildNamespaces: true,
+    // Engine options
+    allowRequest: (req, callback) => {
+      // Only allow WebSocket upgrade requests
+      const isWebSocketUpgrade = req.headers.upgrade?.toLowerCase() === 'websocket';
+      if (!isWebSocketUpgrade) {
+        callback('Only WebSocket connections are allowed', false);
+        return;
+      }
+      callback(null, true);
     }
-
-    attempts.count++;
-    connectionAttempts.set(clientIp, attempts);
-
-    if (attempts.count > MAX_ATTEMPTS) {
-      console.log('Rate limit exceeded:', {
-        clientIp,
-        attempts: attempts.count,
-        timestamp: new Date().toISOString()
-      });
-      return next(new Error('Too many connection attempts'));
-    }
-
-    next();
   });
 
   // Add authentication middleware
@@ -282,12 +257,6 @@ export function setupWebSocket(server: HttpServer) {
     socket.on('disconnect', (reason) => {
       const conn = connections.get(socket.id);
       connections.delete(socket.id);
-      
-      // Clean up rate limiting for this client
-      const clientIp = socket.handshake.headers['x-forwarded-for'] as string || 
-                      socket.handshake.headers['x-real-ip'] as string || 
-                      socket.handshake.address;
-      connectionAttempts.delete(clientIp);
       
       console.log('Client disconnected:', {
         socketId: socket.id,
