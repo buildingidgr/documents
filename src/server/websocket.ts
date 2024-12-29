@@ -165,17 +165,18 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
-    // Only use WebSocket transport
+    // Force WebSocket transport only
     transports: ['websocket'],
-    // Disable HTTP polling fallback
-    allowHTTP1: false,
     // Configure timeouts
     pingInterval: 10000,
     pingTimeout: 5000,
     connectTimeout: 45000,
     // Configure server behavior
     serveClient: false,
-    maxHttpBufferSize: 1e8
+    maxHttpBufferSize: 1e8,
+    // Configure upgrade behavior
+    allowUpgrades: false,
+    upgradeTimeout: 10000
   });
 
   // Create a dedicated namespace for document collaboration
