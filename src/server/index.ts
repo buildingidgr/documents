@@ -32,35 +32,11 @@ async function main() {
     const app = express();
     const server = createServer(app);
 
-    // Initialize Socket.IO with its own handling
+    // Initialize Socket.IO before any middleware
     const io = setupWebSocket(server);
-
-    // Add body parsing middleware
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
-
-    // Add logging middleware
-    app.use((req: Request, res: Response, next: NextFunction) => {
-      // Skip logging for WebSocket requests
-      if (req.headers.upgrade === 'websocket') {
-        return next();
-      }
-      console.log('Incoming request:', {
-        method: req.method,
-        path: req.path,
-        headers: req.headers,
-        query: req.query
-      });
-      next();
-    });
 
     // Add CORS middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
-      // Skip CORS for WebSocket requests
-      if (req.headers.upgrade === 'websocket') {
-        return next();
-      }
-
       const origin = req.headers.origin || '*';
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -74,13 +50,23 @@ async function main() {
       next();
     });
 
+    // Add body parsing middleware
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
+
+    // Add logging middleware
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      console.log('Incoming request:', {
+        method: req.method,
+        path: req.path,
+        headers: req.headers,
+        query: req.query
+      });
+      next();
+    });
+
     // Add authentication middleware
     app.use(async (req: Request, res: Response, next: NextFunction) => {
-      // Skip auth for WebSocket requests
-      if (req.headers.upgrade === 'websocket') {
-        return next();
-      }
-
       try {
         const token = req.headers.authorization?.split(' ')[1];
         if (!token) {
@@ -107,12 +93,8 @@ async function main() {
       res.status(200).json({ status: 'ok' });
     });
 
-    // Let Next.js handle all routes except WebSocket
+    // Let Next.js handle all other routes
     app.all('*', (req: Request, res: Response) => {
-      // Skip Next.js for WebSocket requests
-      if (req.headers.upgrade === 'websocket') {
-        return;
-      }
       return handle(req, res);
     });
 
