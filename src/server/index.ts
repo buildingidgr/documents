@@ -5,6 +5,7 @@ import next from 'next';
 import { setupWebSocket } from './websocket';
 import { db } from './db';
 import { authenticateUser } from './auth';
+import { parse } from 'url';
 
 const dev = process.env.NODE_ENV !== 'production';
 const nextApp = next({ 
@@ -83,19 +84,27 @@ async function main() {
       }
     });
 
+    // Initialize WebSocket
+    const io = setupWebSocket(server);
+
     // Handle WebSocket upgrade requests
     server.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
-      const upgradeHeader = request.headers['upgrade'];
-      if (upgradeHeader !== 'websocket') {
-        socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+      const { pathname } = parse(request.url || '', true);
+      
+      if (pathname === '/ws') {
+        console.log('WebSocket upgrade request received for /ws');
+        const upgradeHeader = request.headers['upgrade'];
+        if (upgradeHeader !== 'websocket') {
+          socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+          return;
+        }
+        // Let Socket.IO handle the upgrade
         return;
       }
 
-      console.log('WebSocket upgrade request received');
+      // For any other upgrade requests, end the connection
+      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
     });
-
-    // Initialize Socket.IO
-    const io = setupWebSocket(server);
 
     // Add health check endpoint
     app.get('/api/healthcheck', (req: Request, res: Response) => {
@@ -104,12 +113,18 @@ async function main() {
 
     // Let Next.js handle API routes
     app.all('/api/*', (req: Request, res: Response) => {
+      if (req.path === '/api/healthcheck') {
+        return next();
+      }
       console.log('Handling API route:', req.path);
       return handle(req, res);
     });
 
     // Let Next.js handle all other routes
     app.all('*', (req: Request, res: Response) => {
+      if (req.path === '/ws') {
+        return next();
+      }
       return handle(req, res);
     });
 
