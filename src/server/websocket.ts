@@ -171,11 +171,10 @@ export function setupWebSocket(server: HttpServer) {
     connectTimeout: 45000,
     allowEIO3: true,
     maxHttpBufferSize: 1e8,
-    reconnection: true,
-    reconnectionAttempts: 5,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    randomizationFactor: 0.5
+    allowUpgrades: true,
+    upgradeTimeout: 10000,
+    destroyUpgradeTimeout: 1000,
+    destroyUpgrade: true
   });
 
   // Create a dedicated namespace for document collaboration
