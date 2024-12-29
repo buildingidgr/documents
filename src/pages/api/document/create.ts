@@ -53,14 +53,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           });
 
-          // Create initial version
-          await tx.version.create({
+          console.log('[Document Create] Created document:', doc.id);
+
+          // Debug: Check if Version table exists
+          const versionTableCheck = await tx.$queryRaw`
+            SELECT EXISTS (
+              SELECT FROM information_schema.tables 
+              WHERE table_schema = 'public'
+              AND table_name = 'Version'
+            );
+          `;
+          console.log('[Document Create] Version table check:', versionTableCheck);
+
+          // Create initial version with debug
+          console.log('[Document Create] Attempting to create version...');
+          const version = await tx.version.create({
             data: {
               content: validatedInput.content as Prisma.InputJsonValue,
               document: { connect: { id: doc.id } },
               user: { connect: { id: userId } }
+            },
+            select: {
+              id: true,
+              documentId: true,
+              userId: true
             }
           });
+          console.log('[Document Create] Created version:', version);
 
           // Fetch complete document with associations
           const fullDoc = await tx.document.findFirstOrThrow({
