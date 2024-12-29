@@ -173,6 +173,45 @@ export function setupWebSocket(server: HttpServer) {
       timestamp: new Date().toISOString()
     });
 
+    // Monitor raw WebSocket closure
+    if (rawSocket.transport?.socket) {
+      rawSocket.transport.socket.on('close', (code: number, reason: string) => {
+        console.log('Raw WebSocket closed:', {
+          socketId: rawSocket.id,
+          code,
+          reason: reason.toString(),
+          transport: rawSocket.transport?.name,
+          headers: rawSocket.request?.headers,
+          timestamp: new Date().toISOString()
+        });
+      });
+
+      // Monitor WebSocket errors
+      rawSocket.transport.socket.on('error', (error: Error) => {
+        console.error('Raw WebSocket error:', {
+          socketId: rawSocket.id,
+          error: error.message,
+          stack: error.stack,
+          transport: rawSocket.transport?.name,
+          timestamp: new Date().toISOString()
+        });
+      });
+    }
+
+    // Monitor transport state changes
+    if (rawSocket.transport) {
+      const originalClose = rawSocket.transport.close;
+      rawSocket.transport.close = function() {
+        console.log('Transport close called:', {
+          socketId: rawSocket.id,
+          transport: rawSocket.transport?.name,
+          stack: new Error().stack,
+          timestamp: new Date().toISOString()
+        });
+        return originalClose.apply(this, arguments);
+      };
+    }
+
     // Monitor transport errors at engine level
     io.engine.on('error', (error: Error) => {
       console.error('Engine error:', {
