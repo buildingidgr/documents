@@ -22,7 +22,8 @@ export async function validateToken(token: string): Promise<AuthResponse> {
       'Accept': 'application/json',
       'User-Agent': 'documents-service'
     },
-    body: requestBody
+    body: { token },
+    timestamp: new Date().toISOString()
   });
 
   try {
@@ -41,10 +42,17 @@ export async function validateToken(token: string): Promise<AuthResponse> {
     console.log('Auth Service Response:', {
       status: response.status,
       body: responseData,
-      headers: Object.fromEntries(response.headers.entries())
+      headers: Object.fromEntries(response.headers.entries()),
+      timestamp: new Date().toISOString()
     });
 
     if (!response.ok) {
+      console.error('Auth service error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: responseData,
+        timestamp: new Date().toISOString()
+      });
       throw new Error(`Failed to validate token: ${response.statusText}`);
     }
 
@@ -54,8 +62,10 @@ export async function validateToken(token: string): Promise<AuthResponse> {
       error: error instanceof Error ? {
         message: error.message,
         name: error.name,
-        stack: error.stack
+        stack: error.stack,
+        cause: error.cause
       } : error,
+      token,
       timestamp: new Date().toISOString()
     });
     throw new Error('Invalid or expired token');
