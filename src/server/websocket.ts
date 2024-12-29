@@ -21,6 +21,9 @@ interface ClientToServerEvents {
 
 interface InterServerEvents {
   ping: () => void;
+  'connect_error': (error: Error) => void;
+  'connect_failed': (error: Error) => void;
+  'error': (error: Error) => void;
 }
 
 interface SocketData {
@@ -160,22 +163,15 @@ export function setupWebSocket(server: HttpServer) {
 
   const docNamespace = io.of('/document');
 
-  // Log namespace errors using the correct events
-  docNamespace.on('connect_error', (error: Error) => {
-    console.error('Document namespace connect error:', {
-      message: error.message,
-      stack: error.stack
+  // Log errors at the engine level
+  io.engine.on('connection_error', (err: Error) => {
+    console.error('Engine.IO connection error:', {
+      error: err.message,
+      stack: err.stack
     });
   });
 
-  docNamespace.on('connect_failed', (error: Error) => {
-    console.error('Document namespace connect failed:', {
-      message: error.message,
-      stack: error.stack
-    });
-  });
-
-  // Add error event to our ServerToClientEvents interface
+  // Log errors at the namespace level
   docNamespace.on('error', (error: Error) => {
     console.error('Document namespace error:', {
       message: error.message,
@@ -191,7 +187,7 @@ export function setupWebSocket(server: HttpServer) {
         headers: socket.handshake.headers,
         auth: socket.handshake.auth,
         transport: socket.conn?.transport?.name,
-        nsp: socket.nsp.name  // Log the namespace
+        nsp: socket.nsp.name
       });
 
       // Check if we're in the correct namespace
