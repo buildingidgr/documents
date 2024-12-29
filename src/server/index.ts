@@ -34,20 +34,8 @@ async function main() {
     // Initialize Socket.IO before any middleware
     const io = setupWebSocket(server);
 
-    // Skip middleware for WebSocket requests
+    // Add CORS middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
-      const isWebSocketRequest = (
-        req.headers.upgrade === 'websocket' ||
-        req.headers['sec-websocket-key'] ||
-        req.url.startsWith('/ws')
-      );
-
-      if (isWebSocketRequest) {
-        next();
-        return;
-      }
-
-      // Add CORS middleware for HTTP requests only
       const origin = req.headers.origin || '*';
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -58,27 +46,17 @@ async function main() {
         res.status(200).end();
         return;
       }
-
-      // Add body parsing middleware for HTTP requests only
-      express.json()(req, res, (err: Error | null) => {
-        if (err) {
-          console.error('Body parsing error:', err);
-          next(err);
-          return;
-        }
-        express.urlencoded({ extended: true })(req, res, next);
-      });
+      next();
     });
 
-    // Add logging middleware for HTTP requests only
-    app.use((req: Request, res: Response, next: NextFunction) => {
-      const isWebSocketRequest = (
-        req.headers.upgrade === 'websocket' ||
-        req.headers['sec-websocket-key'] ||
-        req.url.startsWith('/ws')
-      );
+    // Add body parsing middleware
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
 
-      if (isWebSocketRequest) {
+    // Add logging middleware
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      // Skip logging for WebSocket polling requests
+      if (req.url?.startsWith('/ws')) {
         next();
         return;
       }
@@ -92,15 +70,10 @@ async function main() {
       next();
     });
 
-    // Add authentication middleware for HTTP requests only
+    // Add authentication middleware
     app.use(async (req: Request, res: Response, next: NextFunction) => {
-      const isWebSocketRequest = (
-        req.headers.upgrade === 'websocket' ||
-        req.headers['sec-websocket-key'] ||
-        req.url.startsWith('/ws')
-      );
-
-      if (isWebSocketRequest) {
+      // Skip auth for WebSocket polling requests
+      if (req.url?.startsWith('/ws')) {
         next();
         return;
       }

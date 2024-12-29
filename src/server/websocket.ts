@@ -165,18 +165,11 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
-    // Force WebSocket transport only
     transports: ['websocket'],
-    // Configure timeouts
     pingInterval: 10000,
     pingTimeout: 5000,
     connectTimeout: 45000,
-    // Configure server behavior
-    serveClient: false,
-    maxHttpBufferSize: 1e8,
-    // Configure upgrade behavior
-    allowUpgrades: false,
-    upgradeTimeout: 10000
+    maxHttpBufferSize: 1e8
   });
 
   // Create a dedicated namespace for document collaboration
@@ -185,24 +178,37 @@ export function setupWebSocket(server: HttpServer) {
   // Track connected sockets by user ID
   const connectedSockets = new Map<string, Set<string>>();
 
-  // Add error handlers for the server instance
-  io.engine.on('connection_error', (err: Error) => {
-    console.error('Socket.IO connection error:', err);
-  });
-
-  // Handle WebSocket upgrade requests explicitly
+  // Handle upgrade requests before Socket.IO
   server.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
     const isWebSocketRequest = req.headers.upgrade?.toLowerCase() === 'websocket';
     const isWebSocketPath = req.url?.startsWith('/ws');
     
     if (!isWebSocketRequest || !isWebSocketPath) {
+      console.log('Rejected non-WebSocket upgrade request:', {
+        path: req.url,
+        upgrade: req.headers.upgrade
+      });
       socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
       return;
     }
 
-    console.log('WebSocket upgrade request:', {
+    // Let Socket.IO handle the upgrade
+    console.log('Forwarding WebSocket upgrade request to Socket.IO:', {
       path: req.url,
-      headers: req.headers
+      headers: {
+        upgrade: req.headers.upgrade,
+        connection: req.headers.connection,
+        'sec-websocket-key': req.headers['sec-websocket-key']
+      }
+    });
+  });
+
+  // Add error handlers for the server instance
+  io.engine.on('connection_error', (err: Error) => {
+    console.error('Socket.IO connection error:', {
+      error: err.message,
+      name: err.name,
+      stack: err.stack
     });
   });
 
