@@ -111,18 +111,13 @@ async function main() {
       next();
     });
 
-    // Let Next.js handle API routes
-    app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-      console.log('API request received:', req.path);
-      return handle(req, res);
-    });
-
-    // Let Next.js handle all other routes
-    app.all('*', (req: Request, res: Response, next: NextFunction) => {
+    // Let Next.js handle all routes except WebSocket
+    app.all('*', (req: Request, res: Response) => {
+      console.log('Handling request:', req.path);
       if (!req.path.startsWith('/ws')) {
         return handle(req, res);
       }
-      next();
+      res.status(404).end();
     });
 
     // Add error handlers
