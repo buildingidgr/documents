@@ -1,7 +1,5 @@
 import { Server as HttpServer, IncomingMessage } from 'http';
 import { Server, Socket } from 'socket.io';
-import { Socket as EngineSocket } from 'engine.io';
-import { Transport } from 'engine.io';
 import { authenticateUser } from './auth';
 import { db } from './db';
 import { Prisma } from '@prisma/client';
@@ -21,9 +19,6 @@ interface ClientToServerEvents {
 
 interface InterServerEvents {
   ping: () => void;
-  'connect_error': (error: Error) => void;
-  'connect_failed': (error: Error) => void;
-  'error': (error: Error) => void;
 }
 
 interface SocketData {
@@ -51,157 +46,43 @@ export function setupWebSocket(server: HttpServer) {
         'http://localhost:3000',
         'https://localhost:3000',
         'https://documents-production.up.railway.app',
+        'https://piehost.com',
+        'http://piehost.com',
+        'https://websocketking.com',
+        'https://www.websocketking.com',
+        'https://postman.com',
+        'https://www.postman.com',
         'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
       ],
       methods: ["GET", "POST", "OPTIONS"],
-      allowedHeaders: ["Authorization", "Content-Type", "Origin", "Accept"],
+      allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
     transports: ['websocket'],
-    pingInterval: 10000,
-    pingTimeout: 5000,
-    connectTimeout: 10000,
-    allowUpgrades: false,
+    pingInterval: 25000,
+    pingTimeout: 10000,
+    connectTimeout: 45000,
+    maxHttpBufferSize: 1e8,
+    allowUpgrades: true,
     upgradeTimeout: 10000,
-    allowEIO3: true,
-    allowRequest: (req: IncomingMessage, callback: (err: string | null, success: boolean) => void) => {
-      console.log('Socket.IO connection request:', {
-        headers: req.headers,
-        url: req.url,
-        method: req.method,
-        forwarded: {
-          proto: req.headers['x-forwarded-proto'],
-          host: req.headers['x-forwarded-host'],
-          for: req.headers['x-forwarded-for']
-        }
-      });
-
-      // Always allow the connection
-      callback(null, true);
-    }
-  });
-
-  // Track active connections
-  const activeConnections = new Map<string, { userId?: string; documentId?: string }>();
-
-  // Add root namespace connection logging
-  io.on('connection', (socket: Socket) => {
-    console.log('Root namespace connection:', {
-      id: socket.id,
-      handshake: {
-        headers: socket.handshake.headers,
-        query: socket.handshake.query,
-        auth: socket.handshake.auth
-      }
-    });
-  });
-
-  io.engine.on('connection', (socket: EngineSocket) => {
-    const transport = socket.transport?.name || 'unknown';
-    console.log('Engine.IO connection established:', {
-      protocol: socket.protocol,
-      transport,
-      request: {
-        url: socket.request.url,
-        headers: socket.request.headers,
-        forwarded: {
-          proto: socket.request.headers['x-forwarded-proto'],
-          host: socket.request.headers['x-forwarded-host'],
-          for: socket.request.headers['x-forwarded-for']
-        }
-      }
-    });
-  });
-
-  io.engine.on('initial_headers', (headers: Record<string, string>, req: IncomingMessage) => {
-    headers['Access-Control-Allow-Origin'] = '*';
-    headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
-    headers['Access-Control-Allow-Credentials'] = 'true';
-    
-    headers['Connection'] = 'Upgrade';
-    headers['Upgrade'] = 'websocket';
-    headers['Sec-WebSocket-Accept'] = 'true';
-    
-    console.log('Socket.IO initial headers:', { headers, url: req.url, method: req.method });
-  });
-
-  io.engine.on('headers', (headers: Record<string, string>, req: IncomingMessage) => {
-    headers['Access-Control-Allow-Origin'] = '*';
-    headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
-    headers['Access-Control-Allow-Credentials'] = 'true';
-    
-    headers['Connection'] = 'Upgrade';
-    headers['Upgrade'] = 'websocket';
-    headers['Sec-WebSocket-Accept'] = 'true';
-    
-    console.log('Socket.IO headers:', {
-      headers,
-      url: req.url,
-      method: req.method
-    });
-  });
-
-  io.engine.on('connection_error', (err: Error) => {
-    console.error('Socket.IO connection error:', {
-      error: err.message,
-      stack: err.stack
-    });
+    allowEIO3: true
   });
 
   const docNamespace = io.of('/document');
 
-  // Log errors at the engine level
-  io.engine.on('connection_error', (err: Error) => {
-    console.error('Engine.IO connection error:', {
-      error: err.message,
-      stack: err.stack
-    });
-  });
-
-  // Log errors at the namespace level
-  docNamespace.on('error', (error: Error) => {
-    console.error('Document namespace error:', {
-      message: error.message,
-      stack: error.stack
-    });
-  });
-
-  // Authentication middleware - this runs first
+  // Authentication middleware
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     try {
-      console.log('Socket authentication middleware triggered:', {
-        id: socket.id,
-        headers: socket.handshake.headers,
-        auth: socket.handshake.auth,
-        transport: socket.conn?.transport?.name,
-        nsp: socket.nsp.name
-      });
-
-      // Check if we're in the correct namespace
-      if (socket.nsp.name !== '/document') {
-        console.log('Wrong namespace:', {
-          expected: '/document',
-          actual: socket.nsp.name
-        });
-        return next(new Error('Invalid namespace'));
-      }
-
       const token = socket.handshake.auth.token || 
                     socket.handshake.headers.authorization?.split(' ')[1];
 
       if (!token) {
-        console.log('Authentication failed: No token provided', {
-          headers: socket.handshake.headers,
-          auth: socket.handshake.auth
-        });
+        console.log('Authentication failed: No token provided');
         return next(new Error('Authentication required'));
       }
 
       try {
-        console.log('Attempting to authenticate token:', token.substring(0, 20) + '...');
         const userId = await authenticateUser(token);
-        console.log('Token authentication result:', { userId, success: !!userId });
-
         if (!userId) {
           console.log('Authentication failed: Invalid token');
           return next(new Error('Invalid token'));
@@ -209,17 +90,10 @@ export function setupWebSocket(server: HttpServer) {
 
         socket.data.userId = userId;
         
-        // Update connection info
-        const connectionInfo = activeConnections.get(socket.id);
-        if (connectionInfo) {
-          connectionInfo.userId = userId;
-        }
-        
-        console.log('Socket authenticated successfully:', {
+        console.log('Socket authenticated:', {
           userId,
           socketId: socket.id,
-          transport: socket.conn?.transport?.name,
-          namespace: socket.nsp.name
+          transport: socket.conn?.transport?.name
         });
         
         next();
@@ -233,51 +107,19 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  // Single connection handler for the document namespace
   docNamespace.on('connection', (socket: DocumentSocket) => {
-    console.log('Document namespace connection established:', {
-      id: socket.id,
-      userId: socket.data.userId,  // Should be set from auth middleware
-      transport: socket.conn?.transport?.name,
-      headers: socket.handshake.headers,
-      query: socket.handshake.query,
-      auth: socket.handshake.auth
+    console.log('Client connected:', {
+      userId: socket.data.userId,
+      socketId: socket.id,
+      transport: socket.conn?.transport?.name
     });
 
-    // Store connection info
-    activeConnections.set(socket.id, {
-      userId: socket.data.userId
-    });
-
-    // Handle disconnection
-    socket.on('disconnect', (reason: string) => {
-      const connectionInfo = activeConnections.get(socket.id);
-      console.log('Client disconnected:', {
-        reason,
-        id: socket.id,
-        userId: connectionInfo?.userId,
-        documentId: connectionInfo?.documentId,
-        transport: socket.conn?.transport?.name
-      });
-
-      // Clean up
-      activeConnections.delete(socket.id);
-      socket.removeAllListeners();
-    });
-
-    // Handle document join
     socket.on('document:join', async (documentId: string) => {
       try {
         if (!socket.data.userId) {
-          console.log('Document join failed: Not authenticated');
           socket.emit('error', { message: 'Not authenticated' });
           return;
         }
-
-        console.log('Document join attempt:', {
-          documentId,
-          userId: socket.data.userId
-        });
 
         // Verify document access
         const document = await db.document.findFirst({
@@ -292,37 +134,18 @@ export function setupWebSocket(server: HttpServer) {
         });
 
         if (!document) {
-          console.log('Document access denied:', {
-            documentId,
-            userId: socket.data.userId
-          });
           socket.emit('error', { message: 'Document access denied' });
           return;
         }
 
         // Leave previous document room if any
         if (socket.data.documentId) {
-          console.log('Leaving previous document:', {
-            previousDocumentId: socket.data.documentId,
-            userId: socket.data.userId
-          });
           socket.leave(socket.data.documentId);
         }
 
         // Join document room
         socket.join(documentId);
         socket.data.documentId = documentId;
-
-        // Update connection info
-        const connectionInfo = activeConnections.get(socket.id);
-        if (connectionInfo) {
-          connectionInfo.documentId = documentId;
-        }
-
-        console.log('Document joined successfully:', {
-          documentId,
-          userId: socket.data.userId
-        });
 
         socket.emit('document:joined', {
           documentId,
@@ -396,19 +219,6 @@ export function setupWebSocket(server: HttpServer) {
       }
     });
   });
-
-  setInterval(() => {
-    const sockets = docNamespace.sockets;
-    console.log('Active connections:', {
-      count: sockets.size,
-      sockets: Array.from(sockets.values()).map(s => ({
-        id: s.id,
-        userId: s.data.userId,
-        documentId: s.data.documentId,
-        transport: s.conn?.transport?.name
-      }))
-    });
-  }, 30000);
 
   return io;
 }
