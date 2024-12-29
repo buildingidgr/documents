@@ -55,15 +55,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
           console.log('[Document Create] Created document:', doc.id);
 
-          // Debug: Check if Version table exists
+          // Debug: Check if Version table exists with more detailed logging
+          console.log('[DEBUG] Checking Version table existence...');
           const versionTableCheck = await tx.$queryRaw`
             SELECT EXISTS (
-              SELECT FROM information_schema.tables 
-              WHERE table_schema = 'public'
+              SELECT 1 
+              FROM information_schema.tables 
+              WHERE table_schema = current_schema()
               AND table_name = 'Version'
-            );
+            ) as "exists";
           `;
-          console.log('[Document Create] Version table check:', versionTableCheck);
+          console.log('[DEBUG] Version table check result:', JSON.stringify(versionTableCheck));
+
+          // Check schema
+          const schemaCheck = await tx.$queryRaw`
+            SELECT table_name, column_name, data_type 
+            FROM information_schema.columns 
+            WHERE table_name = 'Version'
+            AND table_schema = current_schema();
+          `;
+          console.log('[DEBUG] Version table schema:', JSON.stringify(schemaCheck));
 
           // Create initial version with explicit ID and error handling
           try {
