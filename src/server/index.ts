@@ -30,18 +30,7 @@ async function main() {
     console.log('Next.js initialization complete');
 
     const app = express();
-    const server = createServer((req, res) => {
-      const path = req.url || '';
-      
-      // Let Socket.IO handle its own paths
-      if (path.startsWith('/ws')) {
-        res.writeHead(404).end();
-        return;
-      }
-
-      // Let Express handle everything else
-      app.handle(req, res);
-    });
+    const server = createServer(app);
 
     // Initialize Socket.IO with its own handling
     const io = setupWebSocket(server);
@@ -52,6 +41,10 @@ async function main() {
 
     // Add logging middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
+      // Skip logging for WebSocket requests
+      if (req.headers.upgrade === 'websocket') {
+        return next();
+      }
       console.log('Incoming request:', {
         method: req.method,
         path: req.path,
@@ -63,6 +56,11 @@ async function main() {
 
     // Add CORS middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
+      // Skip CORS for WebSocket requests
+      if (req.headers.upgrade === 'websocket') {
+        return next();
+      }
+
       const origin = req.headers.origin || '*';
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -78,6 +76,11 @@ async function main() {
 
     // Add authentication middleware
     app.use(async (req: Request, res: Response, next: NextFunction) => {
+      // Skip auth for WebSocket requests
+      if (req.headers.upgrade === 'websocket') {
+        return next();
+      }
+
       try {
         const token = req.headers.authorization?.split(' ')[1];
         if (!token) {
@@ -104,8 +107,12 @@ async function main() {
       res.status(200).json({ status: 'ok' });
     });
 
-    // Let Next.js handle all other routes
+    // Let Next.js handle all routes except WebSocket
     app.all('*', (req: Request, res: Response) => {
+      // Skip Next.js for WebSocket requests
+      if (req.headers.upgrade === 'websocket') {
+        return;
+      }
       return handle(req, res);
     });
 
