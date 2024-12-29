@@ -173,7 +173,7 @@ export function setupWebSocket(server: HttpServer) {
   // Clean up stale connections periodically
   setInterval(() => {
     const now = Date.now();
-    for (const [id, conn] of connections.entries()) {
+    connections.forEach((conn, id) => {
       const lastActivity = conn.lastPing || conn.connectedAt;
       if (now - lastActivity.getTime() > 30000) { // 30 seconds
         console.log('Removing stale connection:', {
@@ -185,7 +185,7 @@ export function setupWebSocket(server: HttpServer) {
         });
         connections.delete(id);
       }
-    }
+    });
     
     // Log current stats after cleanup
     console.log('Connection stats after cleanup:', getConnectionStats());
