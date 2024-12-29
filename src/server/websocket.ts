@@ -118,8 +118,8 @@ export function setupWebSocket(server: HttpServer) {
     pingInterval: 10000,
     pingTimeout: 5000,
     connectTimeout: 10000,
-    transports: ['websocket'],
-    allowUpgrades: false,
+    transports: ['websocket', 'polling'],
+    allowUpgrades: true,
     maxHttpBufferSize: 1e8,
     perMessageDeflate: {
       threshold: 1024
@@ -127,11 +127,7 @@ export function setupWebSocket(server: HttpServer) {
     connectionStateRecovery: {
       maxDisconnectionDuration: 2 * 60 * 1000,
       skipMiddlewares: true,
-    },
-    retries: 3,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    randomizationFactor: 0.5
+    }
   });
 
   // Add error handling for the server
