@@ -36,6 +36,9 @@ interface SocketError {
 interface Transport {
   name: string;
   sid: string;
+  pingTimeout?: number;
+  writable?: boolean;
+  destroyed?: boolean;
 }
 
 interface ServerToClientEvents {
@@ -117,8 +120,8 @@ export function setupWebSocket(server: HttpServer) {
       optionsSuccessStatus: 204
     },
     transports: ['websocket'],
-    pingInterval: 25000,        // Increased ping interval
-    pingTimeout: 20000,         // Increased ping timeout
+    pingInterval: 25000,
+    pingTimeout: 20000,
     connectTimeout: 45000,
     maxHttpBufferSize: 1e8,
     allowUpgrades: false,
@@ -130,10 +133,39 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
+  // Add engine-level error and close monitoring
+  io.engine.on('connection_error', (err: SocketError) => {
+    console.error('Engine connection error:', {
+      code: err.code,
+      message: err.message,
+      type: err.type,
+      req: err.req?.url,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  io.engine.on('close', (socket: EngineSocket) => {
+    console.log('Engine socket closed:', {
+      socketId: socket.id,
+      transport: socket.transport?.name,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Monitor initial connection attempts
+  io.engine.on('initial_headers', (headers: any, req: IncomingMessage) => {
+    console.log('Initial headers:', {
+      url: req.url,
+      method: req.method,
+      headers: req.headers,
+      timestamp: new Date().toISOString()
+    });
+  });
+
   // Create document namespace with authentication requirement
   const docNamespace = io.of('/document');
 
-  // Authentication middleware with increased timeout
+  // Authentication middleware
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     const authTimeout = setTimeout(() => {
       console.error('Authentication timeout:', {
@@ -141,10 +173,9 @@ export function setupWebSocket(server: HttpServer) {
         timestamp: new Date().toISOString()
       });
       next(new Error('Authentication timeout'));
-    }, 10000); // Increased to 10s
+    }, 10000);
 
     try {
-      // Get token from auth header only (consistent with HTTP API)
       const token = socket.handshake.headers.authorization?.split(' ')[1];
 
       if (!token) {
@@ -166,7 +197,6 @@ export function setupWebSocket(server: HttpServer) {
           return next(new Error('Invalid token'));
         }
 
-        // Store user info and track connection
         socket.data.userId = userId;
         connections.set(socket.id, {
           userId,
@@ -196,12 +226,68 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  // Handle document collaboration events
+  // Connection monitoring
   docNamespace.on('connection', (socket: DocumentSocket) => {
     console.log('Client connected to document namespace:', {
       socketId: socket.id,
       userId: socket.data.userId,
+      transport: socket.conn.transport.name,
+      headers: socket.handshake.headers,
       timestamp: new Date().toISOString()
+    });
+
+    // Monitor socket errors
+    socket.on('error', (error: Error) => {
+      console.error('Socket error:', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Monitor disconnection with reason
+    socket.on('disconnect', (reason: string) => {
+      const conn = connections.get(socket.id);
+      connections.delete(socket.id);
+      
+      console.log('Client disconnected:', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+        documentId: socket.data.documentId,
+        reason,
+        wasAuthenticated: !!socket.data.userId,
+        duration: conn ? Date.now() - conn.connectedAt.getTime() : 0,
+        transport: socket.conn?.transport?.name,
+        pingTimeout: socket.conn?.transport?.pingTimeout,
+        timestamp: new Date().toISOString()
+      });
+
+      // Notify other clients if the user was in a document
+      if (socket.data.documentId && socket.data.userId) {
+        socket.to(socket.data.documentId).emit('document:presence', {
+          type: 'presence',
+          userId: socket.data.userId,
+          documentId: socket.data.documentId,
+          data: { 
+            status: 'offline',
+            reason
+          }
+        });
+      }
+    });
+
+    // Monitor connection state
+    socket.conn.on('packet', (packet: any) => {
+      if (packet.type === 'ping' || packet.type === 'pong') {
+        console.log('Heartbeat:', {
+          socketId: socket.id,
+          userId: socket.data.userId,
+          type: packet.type,
+          timestamp: new Date().toISOString()
+        });
+      }
     });
 
     // Handle document join
@@ -278,30 +364,6 @@ export function setupWebSocket(server: HttpServer) {
         documentId: socket.data.documentId,
         content: data.content
       });
-    });
-
-    // Handle disconnection
-    socket.on('disconnect', () => {
-      const conn = connections.get(socket.id);
-      connections.delete(socket.id);
-      
-      console.log('Client disconnected:', {
-        socketId: socket.id,
-        userId: socket.data.userId,
-        documentId: socket.data.documentId,
-        duration: conn ? Date.now() - conn.connectedAt.getTime() : 0,
-        timestamp: new Date().toISOString()
-      });
-
-      // Notify other clients if the user was in a document
-      if (socket.data.documentId && socket.data.userId) {
-        socket.to(socket.data.documentId).emit('document:presence', {
-          type: 'presence',
-          userId: socket.data.userId,
-          documentId: socket.data.documentId,
-          data: { status: 'offline' }
-        });
-      }
     });
   });
 
