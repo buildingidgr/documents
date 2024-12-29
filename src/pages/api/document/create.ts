@@ -67,18 +67,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   user: { connect: { id: user.id } }
                 }
               }
-            }
-          });
-
-          // Fetch the complete document with all associations
-          const documentWithAssociations = await tx.document.findFirst({
-            where: { 
-              id: doc.id,
-              users: {
-                some: {
-                  id: user.id
-                }
-              }
             },
             include: {
               users: {
@@ -104,11 +92,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           });
 
-          if (!documentWithAssociations) {
-            throw new Error('Failed to fetch document after creation');
+          // Verify associations
+          if (!doc.users.some(u => u.id === user.id)) {
+            throw new Error('User association not created');
           }
 
-          return documentWithAssociations;
+          return doc;
         },
         {
           maxWait: 5000, // 5s max wait time
