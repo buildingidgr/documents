@@ -61,6 +61,16 @@ interface DocumentUpdate {
 export function setupWebSocket(server: HttpServer) {
   console.log('Setting up Socket.IO server...');
 
+  // Track active connections and their states
+  const connections = new Map<string, {
+    userId?: string;
+    documentId?: string;
+    connectedAt: Date;
+    lastPing?: Date;
+    transport: string;
+    namespaces: Set<string>;  // Track which namespaces this connection is in
+  }>();
+
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
     path: '/ws',
     cors: {
@@ -99,15 +109,6 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  // Track active connections and their states
-  const connections = new Map<string, {
-    userId?: string;
-    documentId?: string;
-    connectedAt: Date;
-    lastPing?: Date;
-    transport: string;
-  }>();
-
   // Add connection monitoring
   io.engine.on('connection', (socket: EngineSocket) => {
     const connInfo = {
@@ -122,21 +123,43 @@ export function setupWebSocket(server: HttpServer) {
     
     console.log('New engine connection:', connInfo);
     
-    connections.set(socket.id, {
-      connectedAt: new Date(),
-      transport: socket.transport?.name || 'unknown'
-    });
+    // Only add to connections if it doesn't exist
+    if (!connections.has(socket.id)) {
+      connections.set(socket.id, {
+        connectedAt: new Date(),
+        transport: socket.transport?.name || 'unknown',
+        namespaces: new Set()
+      });
 
-    // Log connection stats
-    console.log('Active connections:', {
-      total: connections.size,
-      websocket: Array.from(connections.values()).filter(c => c.transport === 'websocket').length,
-      polling: Array.from(connections.values()).filter(c => c.transport === 'polling').length,
-      timestamp: new Date().toISOString()
-    });
+      // Log accurate connection stats
+      const stats = getConnectionStats();
+      console.log('Connection stats:', stats);
+    }
   });
 
-  // Monitor ping/pong
+  // Helper function to get accurate connection stats
+  function getConnectionStats() {
+    const uniqueConnections = new Set(Array.from(connections.values())
+      .filter(conn => conn.lastPing 
+        ? (Date.now() - conn.lastPing.getTime() < 30000) 
+        : (Date.now() - conn.connectedAt.getTime() < 30000))
+    );
+
+    return {
+      total: uniqueConnections.size,
+      authenticated: Array.from(uniqueConnections).filter(c => c.userId).length,
+      byTransport: {
+        websocket: Array.from(uniqueConnections).filter(c => c.transport === 'websocket').length,
+        polling: Array.from(uniqueConnections).filter(c => c.transport === 'polling').length
+      },
+      byNamespace: {
+        document: Array.from(uniqueConnections).filter(c => c.namespaces.has('/document')).length
+      },
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  // Monitor ping/pong to track active connections
   io.engine.on('packet', (packet: any, socket: EngineSocket) => {
     if (packet.type === 'ping') {
       const conn = connections.get(socket.id);
@@ -144,12 +167,29 @@ export function setupWebSocket(server: HttpServer) {
         conn.lastPing = new Date();
         connections.set(socket.id, conn);
       }
-      console.log('Ping received:', {
-        socketId: socket.id,
-        timestamp: new Date().toISOString()
-      });
     }
   });
+
+  // Clean up stale connections periodically
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, conn] of connections.entries()) {
+      const lastActivity = conn.lastPing || conn.connectedAt;
+      if (now - lastActivity.getTime() > 30000) { // 30 seconds
+        console.log('Removing stale connection:', {
+          socketId: id,
+          userId: conn.userId,
+          lastPing: conn.lastPing?.toISOString(),
+          connectedAt: conn.connectedAt.toISOString(),
+          timestamp: new Date().toISOString()
+        });
+        connections.delete(id);
+      }
+    }
+    
+    // Log current stats after cleanup
+    console.log('Connection stats after cleanup:', getConnectionStats());
+  }, 15000); // Every 15 seconds
 
   // Add detailed error monitoring
   io.engine.on('connection_error', (err: SocketError) => {
@@ -349,35 +389,6 @@ export function setupWebSocket(server: HttpServer) {
       }
     });
   });
-
-  // Log periodic connection stats
-  setInterval(() => {
-    const now = new Date();
-    const stats = {
-      total: connections.size,
-      authenticated: Array.from(connections.values()).filter(c => c.userId).length,
-      inDocument: Array.from(connections.values()).filter(c => c.documentId).length,
-      byTransport: {
-        websocket: Array.from(connections.values()).filter(c => c.transport === 'websocket').length,
-        polling: Array.from(connections.values()).filter(c => c.transport === 'polling').length
-      },
-      timestamp: now.toISOString()
-    };
-    
-    console.log('Connection stats:', stats);
-    
-    // Check for stale connections
-    connections.forEach((conn, id) => {
-      if (conn.lastPing && now.getTime() - conn.lastPing.getTime() > 30000) {
-        console.warn('Stale connection detected:', {
-          socketId: id,
-          userId: conn.userId,
-          lastPing: conn.lastPing.toISOString(),
-          timestamp: now.toISOString()
-        });
-      }
-    });
-  }, 30000);
 
   return io;
 }
