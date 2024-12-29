@@ -1,4 +1,4 @@
-import { Server as HttpServer, IncomingMessage } from 'http';
+import { Server as HttpServer, IncomingMessage, ServerResponse } from 'http';
 import { Server, Socket } from 'socket.io';
 import { instrument } from '@socket.io/admin-ui';
 import { authenticateUser } from './auth';
@@ -114,24 +114,42 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization"],
       credentials: true
     },
-    transports: ['websocket'],  // WebSocket only, no polling
-    pingInterval: 15000,
-    pingTimeout: 10000,
+    transports: ['websocket'],
+    pingInterval: 25000,        // Increased ping interval
+    pingTimeout: 20000,         // Increased ping timeout
     connectTimeout: 45000,
     maxHttpBufferSize: 1e8,
-    allowUpgrades: false,      // No transport upgrades needed
+    allowUpgrades: false,
     upgradeTimeout: 10000,
     perMessageDeflate: {
       threshold: 2048,
       clientNoContextTakeover: true,
       serverNoContextTakeover: true
+    },
+    // Handle connection directly
+    handlePreflightRequest: (req: IncomingMessage, res: ServerResponse) => {
+      res.writeHead(200, {
+        "Access-Control-Allow-Origin": req.headers.origin || "*",
+        "Access-Control-Allow-Methods": "GET,POST",
+        "Access-Control-Allow-Headers": "Authorization",
+        "Access-Control-Allow-Credentials": "true"
+      });
+      res.end();
+    }
+  });
+
+  // Attach to server without interfering with HTTP routes
+  server.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
+    if (req.url?.startsWith('/ws')) {
+      // Handle WebSocket upgrades separately from HTTP
+      io.engine.handleUpgrade(req, socket, head);
     }
   });
 
   // Create document namespace with authentication requirement
   const docNamespace = io.of('/document');
 
-  // Authentication middleware with timeout
+  // Authentication middleware with increased timeout
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     const authTimeout = setTimeout(() => {
       console.error('Authentication timeout:', {
@@ -139,7 +157,7 @@ export function setupWebSocket(server: HttpServer) {
         timestamp: new Date().toISOString()
       });
       next(new Error('Authentication timeout'));
-    }, 5000);
+    }, 10000); // Increased to 10s
 
     try {
       // Get token from auth header only (consistent with HTTP API)
