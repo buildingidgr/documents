@@ -36,115 +36,82 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Validate input
     const validatedInput = documentInputSchema.parse(req.body);
-    console.log('[Document Create] Validated input:', validatedInput);
+    console.log('[Document Create] Starting document creation for user:', userId);
 
     try {
       // Wrap all database operations in a single transaction with retries
       const result = await db.$transaction(
         async (tx) => {
-          // Ensure user exists in database
-          console.log('[Document Create] Creating/updating user:', userId);
-          const user = await tx.user.upsert({
-            where: { id: userId },
-            update: {},
-            create: {
-              id: userId,
-              name: null,
-            },
-          });
-          console.log('[Document Create] User created/updated:', user.id);
-
           // Create document with user association
-          console.log('[Document Create] Creating document...');
           const doc = await tx.document.create({
             data: {
               title: validatedInput.title,
               content: validatedInput.content as Prisma.InputJsonValue,
               users: {
-                connect: { id: user.id }
+                connect: { id: userId }
               }
             }
           });
-          console.log('[Document Create] Created document:', doc.id);
 
           // Create initial version
-          try {
-            console.log('[Document Create] Creating version for document:', doc.id);
-            
-            // Create version using Prisma with explicit logging
-            const version = await tx.version.create({
-              data: {
-                content: validatedInput.content as Prisma.InputJsonValue,
-                document: { 
-                  connect: { 
-                    id: doc.id 
-                  } 
-                },
-                user: { 
-                  connect: { 
-                    id: user.id 
-                  } 
+          await tx.version.create({
+            data: {
+              content: validatedInput.content as Prisma.InputJsonValue,
+              document: { connect: { id: doc.id } },
+              user: { connect: { id: userId } }
+            }
+          });
+
+          // Fetch complete document with associations
+          return await tx.document.findFirstOrThrow({
+            where: { 
+              id: doc.id,
+              users: {
+                some: {
+                  id: userId
                 }
               }
-            });
-            console.log('[Document Create] Created version:', version.id);
-
-            // Fetch complete document with associations
-            console.log('[Document Create] Fetching complete document...');
-            return await tx.document.findFirstOrThrow({
-              where: { 
-                id: doc.id,
-                users: {
-                  some: {
-                    id: user.id
-                  }
+            },
+            include: {
+              users: {
+                select: {
+                  id: true,
+                  name: true
                 }
               },
-              include: {
-                users: {
-                  select: {
-                    id: true,
-                    name: true
+              versions: {
+                select: {
+                  id: true,
+                  content: true,
+                  createdAt: true,
+                  userId: true,
+                  user: {
+                    select: {
+                      id: true,
+                      name: true
+                    }
                   }
                 },
-                versions: {
-                  select: {
-                    id: true,
-                    content: true,
-                    createdAt: true,
-                    userId: true,
-                    user: {
-                      select: {
-                        id: true,
-                        name: true
-                      }
-                    }
-                  },
-                  orderBy: {
-                    createdAt: 'desc'
-                  },
-                  take: 1
-                }
+                orderBy: {
+                  createdAt: 'desc'
+                },
+                take: 1
               }
-            });
-          } catch (versionError) {
-            console.error('[Document Create] Failed to create version:', 
-              versionError instanceof Error ? versionError.message : 'Unknown error',
-              '\nStack:', versionError instanceof Error ? versionError.stack : 'No stack trace'
-            );
-            throw versionError;
-          }
+            }
+          });
         },
         {
-          maxWait: 5000, // 5s max wait time
-          timeout: 10000, // 10s timeout
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable // Ensure consistency
+          maxWait: 5000,
+          timeout: 10000,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable
         }
       );
 
-      if (!result.users.some((u: User) => u.id === userId)) {
-        throw new Error('Failed to create user association');
-      }
+      console.log('[Document Create] Transaction completed successfully:', {
+        documentId: result.id,
+        userId: userId,
+        versionCount: result.versions?.length ?? 0
+      });
 
       return res.status(200).json(result);
     } catch (dbError) {
