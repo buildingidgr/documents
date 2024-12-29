@@ -87,10 +87,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 }
               }
             });
+            console.log('[Document Create] Created version:', version.id);
 
             // Fetch complete document with associations
             console.log('[Document Create] Fetching complete document...');
-            const fullDoc = await tx.document.findFirstOrThrow({
+            return await tx.document.findFirstOrThrow({
               where: { 
                 id: doc.id,
                 users: {
@@ -126,8 +127,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 }
               }
             });
-
-            return fullDoc;
           } catch (versionError) {
             console.error('[Document Create] Failed to create version:', 
               versionError instanceof Error ? versionError.message : 'Unknown error',
@@ -135,43 +134,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             );
             throw versionError;
           }
-
-          // Fetch complete document with associations
-          console.log('[Document Create] Fetching complete document...');
-          const fullDoc = await tx.document.findFirstOrThrow({
-            where: { 
-              id: doc.id,
-              users: {
-                some: {
-                  id: user.id
-                }
-              }
-            },
-            include: {
-              users: {
-                select: {
-                  id: true,
-                  name: true
-                }
-              },
-              versions: {
-                include: {
-                  user: {
-                    select: {
-                      id: true,
-                      name: true
-                    }
-                  }
-                },
-                orderBy: {
-                  createdAt: 'desc'
-                },
-                take: 1
-              }
-            }
-          });
-
-          return fullDoc;
         },
         {
           maxWait: 5000, // 5s max wait time
