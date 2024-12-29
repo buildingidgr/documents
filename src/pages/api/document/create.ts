@@ -64,7 +64,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           });
 
+          process.stdout.write(`[Document Create] Created document: ${doc.id}\n`);
+
           // Create initial version
+          process.stdout.write(`[Document Create] Creating version for document: ${doc.id}\n`);
           const version = await tx.version.create({
             data: {
               content: validatedInput.content as Prisma.InputJsonValue,
@@ -72,6 +75,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               user: { connect: { id: user.id } }
             }
           });
+          process.stdout.write(`[Document Create] Created version: ${version.id}\n`);
 
           // Fetch complete document with associations
           const fullDoc = await tx.document.findFirstOrThrow({
