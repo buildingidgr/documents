@@ -119,8 +119,7 @@ export function setupWebSocket(server: HttpServer) {
     pingTimeout: 10000,
     connectTimeout: 10000,
     transports: ['websocket'],
-    allowUpgrades: true,
-    upgradeTimeout: 10000,
+    allowUpgrades: false,
     maxHttpBufferSize: 1e8,
     perMessageDeflate: {
       threshold: 1024
@@ -128,8 +127,21 @@ export function setupWebSocket(server: HttpServer) {
   });
 
   // Add error handling for the server
-  io.engine.on('connection_error', (err) => {
+  io.engine.on('connection_error', (err: Error) => {
     console.error('Connection error:', err);
+  });
+
+  // Log all engine events for debugging
+  io.engine.on('initial_headers', (headers: any, req: any) => {
+    console.log('Initial headers:', headers);
+  });
+
+  io.engine.on('headers', (headers: any, req: any) => {
+    console.log('Headers:', headers);
+  });
+
+  io.engine.on('upgrade', (req: any) => {
+    console.log('Engine upgrade event:', req.url);
   });
 
   // Authentication middleware

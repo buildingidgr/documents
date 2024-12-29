@@ -83,9 +83,11 @@ async function main() {
       }
     });
 
+    // Initialize Socket.IO once
+    const io = setupWebSocket(server);
+
     // Handle WebSocket upgrade requests
     server.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
-      const upgradeHeader = request.headers['upgrade'];
       const path = request.url;
 
       if (!path?.startsWith('/ws')) {
@@ -94,14 +96,7 @@ async function main() {
       }
 
       console.log('WebSocket upgrade request received for path:', path);
-      
-      // Let Socket.IO handle the upgrade
-      const io = setupWebSocket(server);
-      io.engine.handleUpgrade(request, socket, head);
     });
-
-    // Initialize Socket.IO once
-    const io = setupWebSocket(server);
 
     // Add health check endpoint
     app.get('/api/healthcheck', (req: Request, res: Response) => {
