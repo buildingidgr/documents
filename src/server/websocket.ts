@@ -129,7 +129,12 @@ export function setupWebSocket(server: HttpServer) {
     },
     // Other options
     allowEIO3: true,
-    cookie: false
+    cookie: false,
+    // Add connection data parser
+    connectionStateRecovery: {
+      maxDisconnectionDuration: 2 * 60 * 1000,
+      skipMiddlewares: true,
+    }
   });
 
   // Track engine-level events
@@ -138,6 +143,7 @@ export function setupWebSocket(server: HttpServer) {
       url: req.url,
       method: req.method,
       headers: req.headers,
+      query: req.query,
       timestamp: new Date().toISOString()
     });
   });
@@ -147,90 +153,98 @@ export function setupWebSocket(server: HttpServer) {
       url: req.url,
       method: req.method,
       headers: req.headers,
+      query: req.query,
       timestamp: new Date().toISOString()
     });
   });
 
-  // Add global authentication middleware with timeout
-  io.use((socket: Socket, next) => {
-    const authTimeout = setTimeout(() => {
-      console.log('Auth timeout reached:', {
-        socketId: socket.id,
-        handshake: socket.handshake,
-        timestamp: new Date().toISOString()
-      });
-      next(new Error('Authentication timeout'));
-    }, 5000);
-
-    // Log connection attempt
-    console.log('Connection attempt:', {
-      socketId: socket.id,
-      handshake: socket.handshake,
+  // Handle connection directly at engine level
+  io.engine.on('connection', async (rawSocket: any) => {
+    console.log('Engine connection:', {
+      id: rawSocket.id,
+      headers: rawSocket.request?.headers,
+      query: rawSocket.request?._query,
       timestamp: new Date().toISOString()
     });
 
-    // Check for auth data
-    if (!socket.handshake.auth?.token) {
-      clearTimeout(authTimeout);
-      console.log('No auth token provided:', {
-        socketId: socket.id,
-        handshake: socket.handshake,
+    try {
+      // Get auth token from various sources
+      const authHeader = rawSocket.request?.headers?.authorization;
+      const token = authHeader?.startsWith('Bearer ') 
+        ? authHeader.substring(7) 
+        : rawSocket.request?.headers?.auth 
+          || rawSocket.request?._query?.token;
+
+      if (!token) {
+        console.log('No auth token found:', {
+          id: rawSocket.id,
+          headers: rawSocket.request?.headers,
+          query: rawSocket.request?._query,
+          timestamp: new Date().toISOString()
+        });
+        rawSocket.close();
+        return;
+      }
+
+      console.log('Found auth token:', {
+        id: rawSocket.id,
+        token,
         timestamp: new Date().toISOString()
       });
-      return next(new Error('Authentication required'));
-    }
 
-    // Proceed with authentication
-    authenticateUser(socket.handshake.auth.token)
-      .then(userId => {
-        clearTimeout(authTimeout);
-        if (!userId) {
-          console.log('Invalid token:', {
-            socketId: socket.id,
-            handshake: socket.handshake,
-            timestamp: new Date().toISOString()
-          });
-          return next(new Error('Invalid token'));
-        }
-
-        // Store user data
-        socket.data.userId = userId;
-        connections.set(socket.id, {
-          userId,
-          connectedAt: new Date(),
-          transport: socket.conn.transport.name,
-          namespaces: new Set(['/document']),
-          engineId: socket.conn.transport.sid,
-          authenticated: true
-        });
-
-        console.log('Authentication successful:', {
-          socketId: socket.id,
-          userId,
+      const userId = await authenticateUser(token);
+      if (!userId) {
+        console.log('Invalid token:', {
+          id: rawSocket.id,
           timestamp: new Date().toISOString()
         });
+        rawSocket.close();
+        return;
+      }
 
-        next();
-      })
-      .catch(error => {
-        clearTimeout(authTimeout);
-        console.error('Authentication error:', {
-          socketId: socket.id,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : undefined,
-          handshake: socket.handshake,
-          timestamp: new Date().toISOString()
-        });
-        next(new Error('Authentication failed'));
+      // Store connection info
+      connections.set(rawSocket.id, {
+        userId,
+        connectedAt: new Date(),
+        transport: rawSocket.transport?.name || 'unknown',
+        namespaces: new Set(['/document']),
+        engineId: rawSocket.id,
+        authenticated: true
       });
+
+      console.log('Engine authentication successful:', {
+        id: rawSocket.id,
+        userId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Engine authentication error:', {
+        id: rawSocket.id,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
+      rawSocket.close();
+    }
   });
 
   // Monitor all connections
   io.on('connection', (socket: Socket) => {
+    const conn = connections.get(socket.id);
+    if (!conn?.authenticated) {
+      console.log('Unauthenticated connection attempt:', {
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
+      });
+      socket.disconnect(true);
+      return;
+    }
+
+    socket.data.userId = conn.userId;
+    
     console.log('Client connected:', {
       socketId: socket.id,
       userId: socket.data.userId,
-      auth: socket.handshake.auth,
       timestamp: new Date().toISOString()
     });
 
