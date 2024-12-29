@@ -165,69 +165,29 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
-    transports: ['polling', 'websocket'],
+    // Configure transport settings
+    transports: ['websocket', 'polling'],
     allowUpgrades: true,
-    pingInterval: 25000,
-    pingTimeout: 20000,
-    connectTimeout: 45000
-  });
-
-  // Add authentication at the engine level
-  io.engine.use(async (req: IncomingMessage & { _query?: { sid?: string }; userId?: string }, res: ServerResponse, next: (err?: Error) => void) => {
-    try {
-      // Only authenticate handshake requests
-      const isHandshake = req._query?.sid === undefined;
-      if (!isHandshake) {
-        next();
-        return;
+    upgradeTimeout: 10000,
+    // Configure timeouts
+    pingInterval: 10000,
+    pingTimeout: 5000,
+    connectTimeout: 45000,
+    // Configure connection state recovery
+    connectionStateRecovery: {
+      maxDisconnectionDuration: 2 * 60 * 1000,
+      skipMiddlewares: true,
+    },
+    // Configure perMessageDeflate
+    perMessageDeflate: {
+      threshold: 1024,
+      zlibInflateOptions: {
+        chunkSize: 10 * 1024
+      },
+      zlibDeflateOptions: {
+        level: 6
       }
-
-      const token = req.headers.authorization?.split(' ')[1];
-      if (!token) {
-        next();
-        return;
-      }
-
-      const userId = await authenticateUser(token);
-      if (userId) {
-        req.userId = userId;
-        console.log('Engine auth success:', { userId });
-      }
-      next();
-    } catch (error) {
-      console.error('Engine auth error:', error);
-      next();
     }
-  });
-
-  // Add CORS headers at the engine level
-  io.engine.use((req: IncomingMessage, res: ServerResponse, next: (err?: Error) => void) => {
-    const origin = req.headers.origin || '*';
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
-    next();
-  });
-
-  // Log all engine events for debugging
-  io.engine.on('connection_error', (err: Error) => {
-    console.error('Engine connection error:', err);
-  });
-
-  io.engine.on('connection', (socket: any) => {
-    console.log('Engine connection event:', {
-      id: socket.id,
-      transport: socket.transport?.name,
-      headers: socket.request?.headers
-    });
   });
 
   // Create a dedicated namespace for document collaboration
@@ -244,8 +204,7 @@ export function setupWebSocket(server: HttpServer) {
         headers: socket.handshake.headers,
         query: socket.handshake.query,
         id: socket.id,
-        transport: socket.conn?.transport?.name,
-        namespace: socket.nsp.name
+        transport: socket.conn?.transport?.name
       });
 
       const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
@@ -270,7 +229,12 @@ export function setupWebSocket(server: HttpServer) {
         }
         connectedSockets.get(userId)?.add(socket.id);
 
-        console.log('Socket authenticated for user:', userId, 'socket:', socket.id, 'namespace:', socket.nsp.name);
+        console.log('Socket authenticated:', {
+          userId,
+          socketId: socket.id,
+          transport: socket.conn?.transport?.name
+        });
+        
         next();
       } catch (error) {
         console.error('Token validation error:', error);
