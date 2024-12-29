@@ -165,30 +165,50 @@ export function setupWebSocket(server: HttpServer) {
       credentials: true,
       allowedHeaders: ['Authorization', 'Content-Type']
     },
-    allowEIO3: true,
-    pingInterval: 10000,
-    pingTimeout: 5000,
-    connectTimeout: 10000,
+    // Increase timeouts for Railway's proxy
+    pingInterval: 25000,
+    pingTimeout: 20000,
+    connectTimeout: 30000,
+    // Allow both transports but prefer WebSocket
     transports: ['websocket', 'polling'],
     allowUpgrades: true,
+    upgradeTimeout: 30000,
     maxHttpBufferSize: 1e8,
-    // Railway proxy settings
+    // Handle Railway's proxy headers
     allowRequest: (req: IncomingMessage, callback: (err: string | null | undefined, success: boolean) => void) => {
-      callback(null, true); // Allow all requests through
+      // Trust Railway's proxy headers
+      const forwardedProto = req.headers['x-forwarded-proto'];
+      const forwardedHost = req.headers['x-forwarded-host'];
+      
+      if (forwardedProto && forwardedHost) {
+        // Ensure the request is coming through Railway's proxy
+        if (forwardedHost.includes('railway.app')) {
+          callback(null, true);
+          return;
+        }
+      }
+      
+      // For local development
+      if (process.env.NODE_ENV !== 'production') {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
     },
-    // Handle proxies
-    connectionStateRecovery: {
-      maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
-      skipMiddlewares: true,
-    },
+    // Compression settings
     perMessageDeflate: {
-      threshold: 2048 // Only compress messages larger than 2KB
+      threshold: 2048, // Only compress messages larger than 2KB
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: true
     },
+    // Cookie settings for sticky sessions
     cookie: {
       name: 'io',
       path: '/',
       httpOnly: true,
-      sameSite: 'lax'
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production'
     }
   });
 
