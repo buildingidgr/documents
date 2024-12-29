@@ -23,12 +23,22 @@ const updateDocumentSchema = z.object({
 });
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  console.log('[DEBUG] Document GET request received:', {
+    method: req.method,
+    documentId: req.query.id,
+    headers: req.headers,
+  });
+
   try {
     // Authenticate user
     const token = req.headers.authorization?.split(' ')[1];
+    console.log('[DEBUG] Token:', token ? 'Present' : 'Missing');
+    
     const userId = await authenticateUser(token);
+    console.log('[DEBUG] User authenticated:', userId);
     
     const documentId = req.query.id as string;
+    console.log('[DEBUG] Looking up document:', documentId);
     
     switch (req.method) {
       case 'GET':
