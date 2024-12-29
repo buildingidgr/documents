@@ -212,8 +212,9 @@ export function setupWebSocket(server: HttpServer) {
       namespaceConnections: docNamespace.sockets.size,
       engineInfo: {
         clientsCount: io.engine.clientsCount,
-        middlewareCount: io.engine.middlewares?.length || 0,
-        path: io.engine.path
+        path: io.engine.path,
+        initialPacket: io.engine.initialPacket,
+        namespaces: Array.from(io.of().sockets.keys()).length
       },
       timestamp: new Date().toISOString()
     });
