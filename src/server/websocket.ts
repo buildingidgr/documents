@@ -60,26 +60,32 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
-    transports: ['polling', 'websocket'],
+    transports: ['websocket'],
     pingInterval: 5000,
     pingTimeout: 3000,
     connectTimeout: 10000,
-    allowUpgrades: true,
+    allowUpgrades: false,
     upgradeTimeout: 5000,
     allowEIO3: true,
     perMessageDeflate: false,
     httpCompression: false,
     allowRequest: (req: IncomingMessage, callback: (err: string | null, success: boolean) => void) => {
+      const isWebSocketRequest = req.headers.upgrade?.toLowerCase() === 'websocket';
+      const isProxied = req.headers['x-forwarded-proto'] === 'https';
+      
       console.log('Socket.IO connection request:', {
         headers: req.headers,
         url: req.url,
         method: req.method,
+        isWebSocketRequest,
+        isProxied,
         forwarded: {
           proto: req.headers['x-forwarded-proto'],
           host: req.headers['x-forwarded-host'],
           for: req.headers['x-forwarded-for']
         }
       });
+
       callback(null, true);
     },
     cookie: false
@@ -89,8 +95,10 @@ export function setupWebSocket(server: HttpServer) {
   const activeConnections = new Map<string, { userId?: string; documentId?: string }>();
 
   io.engine.on('connection', (socket: EngineSocket) => {
+    const transport = socket.transport?.name || 'unknown';
     console.log('Engine.IO connection established:', {
       protocol: socket.protocol,
+      transport,
       request: {
         url: socket.request.url,
         headers: socket.request.headers,
@@ -101,15 +109,6 @@ export function setupWebSocket(server: HttpServer) {
         }
       }
     });
-
-    // Handle transport change
-    socket.on('upgrade', (transport: Transport) => {
-      console.log('Socket transport upgraded:', {
-        protocol: socket.protocol,
-        from: 'polling',
-        to: transport.name
-      });
-    });
   });
 
   io.engine.on('initial_headers', (headers: Record<string, string>, req: IncomingMessage) => {
@@ -117,10 +116,9 @@ export function setupWebSocket(server: HttpServer) {
     headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
     headers['Access-Control-Allow-Credentials'] = 'true';
     
-    if (req.headers.upgrade?.toLowerCase() === 'websocket') {
-      headers['Connection'] = 'Upgrade';
-      headers['Upgrade'] = 'websocket';
-    }
+    headers['Connection'] = 'Upgrade';
+    headers['Upgrade'] = 'websocket';
+    headers['Sec-WebSocket-Accept'] = 'true';
     
     console.log('Socket.IO initial headers:', { headers, url: req.url, method: req.method });
   });
@@ -129,8 +127,10 @@ export function setupWebSocket(server: HttpServer) {
     headers['Access-Control-Allow-Origin'] = '*';
     headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
     headers['Access-Control-Allow-Credentials'] = 'true';
+    
     headers['Connection'] = 'Upgrade';
     headers['Upgrade'] = 'websocket';
+    headers['Sec-WebSocket-Accept'] = 'true';
     
     console.log('Socket.IO headers:', {
       headers,
