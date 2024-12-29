@@ -82,28 +82,73 @@ export function setupWebSocket(server: HttpServer) {
       credentials: true
     },
     transports: ['websocket', 'polling'],
-    pingInterval: 25000,
-    pingTimeout: 20000,
+    pingInterval: 15000,
+    pingTimeout: 10000,
     connectTimeout: 45000,
     maxHttpBufferSize: 1e8,
     allowUpgrades: true,
     upgradeTimeout: 10000,
-    allowEIO3: true
+    allowEIO3: true,
+    perMessageDeflate: {
+      threshold: 2048,
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: true
+    },
+    httpCompression: {
+      threshold: 2048
+    }
   });
 
-  // Enable Socket.IO debug mode via environment variable
-  if (process.env.DEBUG) {
-    console.log('Socket.IO debug mode enabled');
-  }
+  // Track active connections and their states
+  const connections = new Map<string, {
+    userId?: string;
+    documentId?: string;
+    connectedAt: Date;
+    lastPing?: Date;
+    transport: string;
+  }>();
 
   // Add connection monitoring
   io.engine.on('connection', (socket: EngineSocket) => {
-    console.log('New engine connection:', {
+    const connInfo = {
       id: socket.id,
       transport: socket.transport?.name,
       headers: socket.request?.headers,
+      timestamp: new Date().toISOString(),
+      origin: socket.request?.headers.origin,
+      forwardedFor: socket.request?.headers['x-forwarded-for'],
+      forwardedProto: socket.request?.headers['x-forwarded-proto']
+    };
+    
+    console.log('New engine connection:', connInfo);
+    
+    connections.set(socket.id, {
+      connectedAt: new Date(),
+      transport: socket.transport?.name || 'unknown'
+    });
+
+    // Log connection stats
+    console.log('Active connections:', {
+      total: connections.size,
+      websocket: Array.from(connections.values()).filter(c => c.transport === 'websocket').length,
+      polling: Array.from(connections.values()).filter(c => c.transport === 'polling').length,
       timestamp: new Date().toISOString()
     });
+  });
+
+  // Monitor ping/pong
+  io.engine.on('packet', (packet: any, socket: EngineSocket) => {
+    if (packet.type === 'ping') {
+      const conn = connections.get(socket.id);
+      if (conn) {
+        conn.lastPing = new Date();
+        connections.set(socket.id, conn);
+      }
+      console.log('Ping received:', {
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
+      });
+    }
   });
 
   // Add detailed error monitoring
@@ -113,176 +158,111 @@ export function setupWebSocket(server: HttpServer) {
       message: err.message,
       type: err.type,
       req: err.req?.url,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  io.engine.on('headers', (headers: Record<string, string>, req: IncomingMessage) => {
-    console.log('Engine headers:', {
-      headers,
-      url: req.url,
-      method: req.method,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      activeConnections: connections.size
     });
   });
 
   const docNamespace = io.of('/document');
 
-  // Authentication middleware
+  // Authentication middleware with timeout
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
+    const authTimeout = setTimeout(() => {
+      console.error('Authentication timeout:', {
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
+      });
+      next(new Error('Authentication timeout'));
+    }, 5000);
+
     try {
       const token = socket.handshake.auth.token || 
                     socket.handshake.headers.authorization?.split(' ')[1];
 
       if (!token) {
+        clearTimeout(authTimeout);
         console.log('Authentication failed: No token provided');
         return next(new Error('Authentication required'));
       }
 
       try {
         const userId = await authenticateUser(token);
+        clearTimeout(authTimeout);
+        
         if (!userId) {
           console.log('Authentication failed: Invalid token');
           return next(new Error('Invalid token'));
         }
 
         socket.data.userId = userId;
+        const conn = connections.get(socket.id);
+        if (conn) {
+          conn.userId = userId;
+          connections.set(socket.id, conn);
+        }
         
         console.log('Socket authenticated:', {
           userId,
           socketId: socket.id,
-          transport: socket.conn?.transport?.name
+          transport: socket.conn?.transport?.name,
+          activeConnections: connections.size
         });
         
         next();
       } catch (error) {
+        clearTimeout(authTimeout);
         console.error('Socket auth error:', error);
         next(new Error('Authentication failed'));
       }
     } catch (error) {
+      clearTimeout(authTimeout);
       console.error('Socket middleware error:', error);
       next(new Error('Authentication failed'));
     }
   });
 
-  docNamespace.on('connection', (socket: DocumentSocket) => {
-    console.log('Client connected:', {
-      userId: socket.data.userId,
+  // Handle disconnection and cleanup
+  io.on('disconnect', (socket: Socket) => {
+    const conn = connections.get(socket.id);
+    connections.delete(socket.id);
+    
+    console.log('Connection closed:', {
       socketId: socket.id,
-      transport: socket.conn?.transport?.name
-    });
-
-    socket.on('document:join', async (documentId: string) => {
-      try {
-        if (!socket.data.userId) {
-          socket.emit('error', { message: 'Not authenticated' });
-          return;
-        }
-
-        // Verify document access
-        const document = await db.document.findFirst({
-          where: {
-            id: documentId,
-            users: {
-              some: {
-                id: socket.data.userId
-              }
-            }
-          }
-        });
-
-        if (!document) {
-          socket.emit('error', { message: 'Document access denied' });
-          return;
-        }
-
-        // Leave previous document room if any
-        if (socket.data.documentId) {
-          socket.leave(socket.data.documentId);
-        }
-
-        // Join document room
-        socket.join(documentId);
-        socket.data.documentId = documentId;
-
-        socket.emit('document:joined', {
-          documentId,
-          userId: socket.data.userId
-        });
-
-        // Notify other clients in the room
-        socket.to(documentId).emit('document:presence', {
-          type: 'presence',
-          userId: socket.data.userId,
-          documentId: documentId,
-          data: { status: 'online' }
-        });
-      } catch (error) {
-        console.error('Error joining document:', error);
-        socket.emit('error', { message: 'Failed to join document' });
-      }
-    });
-
-    // Handle document updates
-    socket.on('document:update', async (data: DocumentUpdate) => {
-      if (!socket.data.userId || !socket.data.documentId) {
-        socket.emit('error', { message: 'Not authenticated or not in a document' });
-        return;
-      }
-
-      try {
-        // Update document in database
-        await db.document.update({
-          where: { id: socket.data.documentId },
-          data: {
-            content: data.content as Prisma.InputJsonValue,
-            versions: {
-              create: {
-                content: data.content as Prisma.InputJsonValue,
-                user: { connect: { id: socket.data.userId } }
-              }
-            }
-          }
-        });
-
-        // Broadcast update to other clients
-        socket.to(socket.data.documentId).emit('document:update', {
-          type: 'update',
-          userId: socket.data.userId,
-          documentId: socket.data.documentId,
-          content: data.content
-        });
-      } catch (error) {
-        console.error('Document update error:', error);
-        socket.emit('error', { message: 'Failed to update document' });
-      }
-    });
-
-    // Handle disconnection
-    socket.on('disconnect', (reason: string) => {
-      console.log('Client disconnected:', {
-        reason,
-        userId: socket.data.userId,
-        socketId: socket.id,
-        transport: socket.conn?.transport?.name
-      });
-
-      if (socket.data.documentId && socket.data.userId) {
-        socket.to(socket.data.documentId).emit('document:presence', {
-          type: 'presence',
-          userId: socket.data.userId,
-          documentId: socket.data.documentId,
-          data: { status: 'offline' }
-        });
-      }
+      userId: conn?.userId,
+      duration: conn ? Date.now() - conn.connectedAt.getTime() : 0,
+      remainingConnections: connections.size,
+      timestamp: new Date().toISOString()
     });
   });
 
-  // Initialize Socket.IO Admin UI
-  instrument(io, {
-    auth: false,
-    mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
-  });
+  // Log periodic connection stats
+  setInterval(() => {
+    const now = new Date();
+    const stats = {
+      total: connections.size,
+      authenticated: Array.from(connections.values()).filter(c => c.userId).length,
+      inDocument: Array.from(connections.values()).filter(c => c.documentId).length,
+      byTransport: {
+        websocket: Array.from(connections.values()).filter(c => c.transport === 'websocket').length,
+        polling: Array.from(connections.values()).filter(c => c.transport === 'polling').length
+      },
+      timestamp: now.toISOString()
+    };
+    
+    console.log('Connection stats:', stats);
+    
+    // Check for stale connections
+    connections.forEach((conn, id) => {
+      if (conn.lastPing && now.getTime() - conn.lastPing.getTime() > 30000) {
+        console.warn('Stale connection detected:', {
+          socketId: id,
+          userId: conn.userId,
+          lastPing: conn.lastPing.toISOString(),
+          timestamp: now.toISOString()
+        });
+      }
+    });
+  }, 30000);
 
   return io;
 }
