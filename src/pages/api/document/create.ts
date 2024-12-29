@@ -65,22 +65,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           `;
           console.log('[Document Create] Version table check:', versionTableCheck);
 
-          // Create initial version with explicit ID
-          console.log('[Document Create] Attempting to create version...');
-          const version = await tx.version.create({
-            data: {
-              id: `ver_${doc.id}`, // Explicit ID based on document ID
-              content: validatedInput.content as Prisma.InputJsonValue,
-              documentId: doc.id,  // Direct field assignment
-              userId: userId      // Direct field assignment
-            },
-            select: {
-              id: true,
-              documentId: true,
-              userId: true
+          // Create initial version with explicit ID and error handling
+          try {
+            const version = await tx.version.create({
+              data: {
+                id: `ver_${doc.id}`,
+                content: validatedInput.content as Prisma.InputJsonValue,
+                documentId: doc.id,
+                userId: userId
+              }
+            });
+
+            if (!version) {
+              throw new Error(`Failed to create version for document ${doc.id}`);
             }
-          });
-          console.log('[Document Create] Created version:', version);
+
+            // Log to stdout for Railway
+            process.stdout.write(JSON.stringify({
+              level: 'info',
+              message: 'Version created successfully',
+              documentId: doc.id,
+              versionId: version.id,
+              userId: userId
+            }) + '\n');
+
+          } catch (versionError) {
+            // Log to stderr for Railway
+            process.stderr.write(JSON.stringify({
+              level: 'error',
+              message: 'Failed to create version',
+              documentId: doc.id,
+              error: versionError instanceof Error ? versionError.message : 'Unknown error',
+              stack: versionError instanceof Error ? versionError.stack : undefined
+            }) + '\n');
+            throw versionError;
+          }
 
           // Fetch complete document with associations
           const fullDoc = await tx.document.findFirstOrThrow({
