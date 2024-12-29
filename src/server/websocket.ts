@@ -130,7 +130,9 @@ export function setupWebSocket(server: HttpServer) {
       threshold: 2048,
       clientNoContextTakeover: true,
       serverNoContextTakeover: true
-    }
+    },
+    allowEIO3: true,
+    cookie: false
   });
 
   // Add engine-level error and close monitoring
@@ -173,52 +175,68 @@ export function setupWebSocket(server: HttpServer) {
       timestamp: new Date().toISOString()
     });
 
-    // Monitor raw WebSocket closure
-    if (rawSocket.transport?.socket) {
-      rawSocket.transport.socket.on('close', (code: number, reason: string) => {
-        console.log('Raw WebSocket closed:', {
-          socketId: rawSocket.id,
-          code,
-          reason: reason.toString(),
-          transport: rawSocket.transport?.name,
-          headers: rawSocket.request?.headers,
-          timestamp: new Date().toISOString()
-        });
-      });
-
-      // Monitor WebSocket errors
-      rawSocket.transport.socket.on('error', (error: Error) => {
-        console.error('Raw WebSocket error:', {
-          socketId: rawSocket.id,
-          error: error.message,
-          stack: error.stack,
-          transport: rawSocket.transport?.name,
-          timestamp: new Date().toISOString()
-        });
-      });
+    // Set a higher timeout for the initial connection
+    if (rawSocket.conn) {
+      rawSocket.conn.setTimeout(30000);
     }
 
-    // Monitor transport state changes
-    if (rawSocket.transport) {
-      const originalClose = rawSocket.transport.close;
-      rawSocket.transport.close = function() {
-        console.log('Transport close called:', {
-          socketId: rawSocket.id,
-          transport: rawSocket.transport?.name,
-          stack: new Error().stack,
-          timestamp: new Date().toISOString()
-        });
-        return originalClose.apply(this, arguments);
-      };
-    }
+    // Monitor connection state
+    const connectionState = {
+      isUpgraded: false,
+      hasError: false,
+      lastActivity: Date.now(),
+      closeReason: null as string | null,
+      closeCode: null as number | null
+    };
 
-    // Monitor transport errors at engine level
-    io.engine.on('error', (error: Error) => {
-      console.error('Engine error:', {
-        error: error.message,
-        stack: error.stack,
+    // Track connection upgrade
+    rawSocket.on('upgrade', () => {
+      connectionState.isUpgraded = true;
+      connectionState.lastActivity = Date.now();
+      console.log('Socket upgraded:', {
+        socketId: rawSocket.id,
+        connectionState,
         timestamp: new Date().toISOString()
       });
+    });
+
+    // Track errors
+    rawSocket.on('error', (error: Error) => {
+      connectionState.hasError = true;
+      console.error('Socket error:', {
+        socketId: rawSocket.id,
+        error: error.message,
+        stack: error.stack,
+        connectionState,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Monitor close with state
+    rawSocket.on('close', (code: number, reason: string) => {
+      connectionState.closeCode = code;
+      connectionState.closeReason = reason;
+      console.log('Socket closed:', {
+        socketId: rawSocket.id,
+        code,
+        reason,
+        connectionState,
+        timeSinceLastActivity: Date.now() - connectionState.lastActivity,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Monitor packets for activity
+    rawSocket.on('packet', (packet: any) => {
+      connectionState.lastActivity = Date.now();
+      if (packet.type === 'ping' || packet.type === 'pong') {
+        console.log('Heartbeat packet:', {
+          socketId: rawSocket.id,
+          type: packet.type,
+          connectionState,
+          timestamp: new Date().toISOString()
+        });
+      }
     });
   });
 
