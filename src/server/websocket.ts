@@ -161,11 +161,16 @@ export function setupWebSocket(server: HttpServer) {
 
   // Monitor ping/pong to track active connections
   io.engine.on('packet', (packet: any, socket: EngineSocket) => {
-    if (packet.type === 'ping') {
+    if (packet.type === 'ping' || packet.type === 'pong') {
       const conn = connections.get(socket.id);
       if (conn) {
         conn.lastPing = new Date();
         connections.set(socket.id, conn);
+        console.log('Ping/Pong received:', {
+          socketId: socket.id,
+          type: packet.type,
+          timestamp: new Date().toISOString()
+        });
       }
     }
   });
@@ -175,12 +180,14 @@ export function setupWebSocket(server: HttpServer) {
     const now = Date.now();
     connections.forEach((conn, id) => {
       const lastActivity = conn.lastPing || conn.connectedAt;
-      if (now - lastActivity.getTime() > 30000) { // 30 seconds
+      // Increase stale timeout to 60 seconds
+      if (now - lastActivity.getTime() > 60000) { // 60 seconds
         console.log('Removing stale connection:', {
           socketId: id,
           userId: conn.userId,
           lastPing: conn.lastPing?.toISOString(),
           connectedAt: conn.connectedAt.toISOString(),
+          inactiveFor: Math.floor((now - lastActivity.getTime()) / 1000) + 's',
           timestamp: new Date().toISOString()
         });
         connections.delete(id);
@@ -188,8 +195,30 @@ export function setupWebSocket(server: HttpServer) {
     });
     
     // Log current stats after cleanup
-    console.log('Connection stats after cleanup:', getConnectionStats());
-  }, 15000); // Every 15 seconds
+    const stats = getConnectionStats();
+    console.log('Connection stats after cleanup:', {
+      ...stats,
+      rawActiveConnections: io.engine.clientsCount,
+      namespaceConnections: docNamespace.sockets.size
+    });
+  }, 30000); // Every 30 seconds
+
+  // Add connection event to track namespace connections
+  io.on('connection', (socket: Socket) => {
+    console.log('Main namespace connection:', {
+      socketId: socket.id,
+      transport: socket.conn?.transport?.name,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Track disconnections at the engine level
+  io.engine.on('close', (socket: EngineSocket) => {
+    console.log('Engine connection closed:', {
+      socketId: socket.id,
+      timestamp: new Date().toISOString()
+    });
+  });
 
   // Add detailed error monitoring
   io.engine.on('connection_error', (err: SocketError) => {
@@ -207,6 +236,13 @@ export function setupWebSocket(server: HttpServer) {
 
   // Authentication middleware with timeout
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
+    console.log('Document namespace connection attempt:', {
+      socketId: socket.id,
+      headers: socket.handshake.headers,
+      auth: socket.handshake.auth,
+      timestamp: new Date().toISOString()
+    });
+
     const authTimeout = setTimeout(() => {
       console.error('Authentication timeout:', {
         socketId: socket.id,
@@ -219,18 +255,39 @@ export function setupWebSocket(server: HttpServer) {
       const token = socket.handshake.auth.token || 
                     socket.handshake.headers.authorization?.split(' ')[1];
 
+      console.log('Auth token check:', {
+        socketId: socket.id,
+        hasToken: !!token,
+        authHeader: socket.handshake.headers.authorization,
+        authObject: socket.handshake.auth,
+        timestamp: new Date().toISOString()
+      });
+
       if (!token) {
         clearTimeout(authTimeout);
-        console.log('Authentication failed: No token provided');
+        console.log('Authentication failed: No token provided', {
+          socketId: socket.id,
+          headers: socket.handshake.headers,
+          auth: socket.handshake.auth
+        });
         return next(new Error('Authentication required'));
       }
 
       try {
+        console.log('Attempting to authenticate token:', {
+          socketId: socket.id,
+          tokenPrefix: token.substring(0, 10) + '...',
+          timestamp: new Date().toISOString()
+        });
+
         const userId = await authenticateUser(token);
         clearTimeout(authTimeout);
         
         if (!userId) {
-          console.log('Authentication failed: Invalid token');
+          console.log('Authentication failed: Invalid token', {
+            socketId: socket.id,
+            timestamp: new Date().toISOString()
+          });
           return next(new Error('Invalid token'));
         }
 
@@ -238,6 +295,7 @@ export function setupWebSocket(server: HttpServer) {
         const conn = connections.get(socket.id);
         if (conn) {
           conn.userId = userId;
+          conn.namespaces.add('/document');  // Track namespace connection
           connections.set(socket.id, conn);
         }
         
@@ -245,18 +303,27 @@ export function setupWebSocket(server: HttpServer) {
           userId,
           socketId: socket.id,
           transport: socket.conn?.transport?.name,
-          activeConnections: connections.size
+          activeConnections: connections.size,
+          namespaces: conn?.namespaces.size || 0
         });
         
         next();
       } catch (error) {
         clearTimeout(authTimeout);
-        console.error('Socket auth error:', error);
+        console.error('Socket auth error:', {
+          error,
+          socketId: socket.id,
+          timestamp: new Date().toISOString()
+        });
         next(new Error('Authentication failed'));
       }
     } catch (error) {
       clearTimeout(authTimeout);
-      console.error('Socket middleware error:', error);
+      console.error('Socket middleware error:', {
+        error,
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
+      });
       next(new Error('Authentication failed'));
     }
   });
