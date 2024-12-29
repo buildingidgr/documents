@@ -35,6 +35,11 @@ async function main() {
 
     // Add CORS middleware first
     app.use((req: Request, res: Response, next: NextFunction) => {
+      // Skip CORS for WebSocket connections
+      if (req.headers.upgrade === 'websocket') {
+        return next();
+      }
+
       const origin = req.headers.origin || '*';
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -68,23 +73,18 @@ async function main() {
 
     // Add authentication middleware
     app.use(async (req: Request, res: Response, next: NextFunction) => {
-      // Skip auth for WebSocket requests - they'll be handled by Socket.IO auth
-      if (req.url?.startsWith('/ws')) {
-        next();
-        return;
+      // Skip auth for WebSocket requests and upgrades
+      if (req.headers.upgrade === 'websocket' || req.url?.startsWith('/ws')) {
+        return next();
       }
 
       try {
         const token = req.headers.authorization?.split(' ')[1];
         if (!token) {
-          next();
-          return;
+          return next();
         }
 
-        console.log('Validating token:', token.substring(0, 20) + '...');
         const userId = await authenticateUser(token);
-        console.log('Token validation response:', { isValid: !!userId, userId });
-        
         if (userId) {
           req.user = { id: userId };
         }
@@ -105,8 +105,14 @@ async function main() {
 
     // Add WebSocket error handling
     server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
+      // Prevent socket timeout
+      socket.setTimeout(0);
+      socket.setNoDelay(true);
+      socket.setKeepAlive(true);
+
       socket.on('error', (err: Error) => {
         console.error('WebSocket upgrade error:', err);
+        socket.destroy();
       });
     });
 
@@ -118,14 +124,27 @@ async function main() {
     // Add error handlers
     server.on('error', (err: Error) => {
       console.error('Server error:', err);
+      // Don't crash the server on connection errors
+      if (err.message.includes('ECONNRESET')) {
+        return;
+      }
     });
 
     process.on('uncaughtException', (err: Error) => {
       console.error('Uncaught exception:', err);
+      // Don't crash on websocket disconnects
+      if (err.message.includes('ECONNRESET') || err.message.includes('socket hang up')) {
+        return;
+      }
+      process.exit(1);
     });
 
     process.on('unhandledRejection', (err: Error | null) => {
       console.error('Unhandled rejection:', err);
+      // Don't crash on websocket disconnects
+      if (err?.message?.includes('ECONNRESET') || err?.message?.includes('socket hang up')) {
+        return;
+      }
     });
 
     const port = process.env.PORT || 8080;
