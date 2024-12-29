@@ -90,7 +90,6 @@ export function setupWebSocket(server: HttpServer) {
 
   io.engine.on('connection', (socket: EngineSocket) => {
     console.log('Engine.IO connection established:', {
-      id: socket.id,
       protocol: socket.protocol,
       request: {
         url: socket.request.url,
@@ -106,8 +105,8 @@ export function setupWebSocket(server: HttpServer) {
     // Handle transport change
     socket.on('upgrade', (transport: Transport) => {
       console.log('Socket transport upgraded:', {
-        id: socket.id,
-        from: socket.protocol,
+        protocol: socket.protocol,
+        from: 'polling',
         to: transport.name
       });
     });
