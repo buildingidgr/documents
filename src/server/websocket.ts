@@ -245,6 +245,7 @@ export function setupWebSocket(server: HttpServer) {
           error: error instanceof Error ? error.message : 'Unknown error',
           timestamp: new Date().toISOString()
         });
+        rawSocket.close();
       });
     }
 
@@ -309,28 +310,6 @@ export function setupWebSocket(server: HttpServer) {
             state: connectionState,
             timestamp: new Date().toISOString()
           });
-
-          // Handle authentication message (type 0 is connect)
-          if (packet.data.charAt(0) === '0' && data.token && !connectionState.authenticationAttempted) {
-            connectionState.authenticationAttempted = true;
-            console.log('Processing authentication token from message:', {
-              socketId: rawSocket.id,
-              state: connectionState,
-              tokenLength: data.token.length,
-              fullToken: data.token,
-              timestamp: new Date().toISOString()
-            });
-
-            const success = await handleAuthentication(data.token);
-            if (!success) {
-              console.log('Closing connection due to authentication failure:', {
-                socketId: rawSocket.id,
-                state: connectionState,
-                timestamp: new Date().toISOString()
-              });
-              rawSocket.close();
-            }
-          }
         } catch (error) {
           console.log('Packet received (parse error):', {
             socketId: rawSocket.id,
