@@ -38,6 +38,10 @@ async function main() {
 
     // Add logging middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
+      // Skip logging for WebSocket requests
+      if (req.headers.upgrade === 'websocket') {
+        return next();
+      }
       console.log('Incoming request:', {
         method: req.method,
         path: req.path,
@@ -49,9 +53,17 @@ async function main() {
 
     // Add CORS middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
-      res.header('Access-Control-Allow-Origin', '*');
+      // Skip CORS for WebSocket upgrade requests
+      if (req.headers.upgrade === 'websocket') {
+        return next();
+      }
+
+      // Handle CORS for HTTP requests
+      const origin = req.headers.origin || '*';
+      res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+      res.header('Access-Control-Allow-Credentials', 'true');
       
       if (req.method === 'OPTIONS') {
         res.status(200).end();
@@ -62,6 +74,11 @@ async function main() {
 
     // Add authentication middleware
     app.use(async (req: Request, res: Response, next: NextFunction) => {
+      // Skip auth middleware for WebSocket requests
+      if (req.headers.upgrade === 'websocket') {
+        return next();
+      }
+
       try {
         const token = req.headers.authorization?.split(' ')[1];
         if (!token) {
@@ -93,8 +110,8 @@ async function main() {
 
     // Let Next.js handle all routes except WebSocket
     app.all('*', (req: Request, res: Response) => {
-      // Skip handling WebSocket paths completely
-      if (req.path.startsWith('/ws')) {
+      // Let Socket.IO handle WebSocket upgrade requests
+      if (req.headers.upgrade === 'websocket') {
         return;
       }
       // Let Next.js handle all other paths
