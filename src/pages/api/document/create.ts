@@ -71,8 +71,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           });
 
           // Fetch the complete document with all associations
-          const documentWithAssociations = await tx.document.findUnique({
-            where: { id: doc.id },
+          const documentWithAssociations = await tx.document.findFirst({
+            where: { 
+              id: doc.id,
+              users: {
+                some: {
+                  id: user.id
+                }
+              }
+            },
             include: {
               users: {
                 select: {
