@@ -1,5 +1,6 @@
 import { Server as HttpServer, IncomingMessage } from 'http';
 import { Server, Socket } from 'socket.io';
+import { instrument } from '@socket.io/admin-ui';
 import { authenticateUser } from './auth';
 import { db } from './db';
 import { Prisma } from '@prisma/client';
@@ -52,6 +53,7 @@ export function setupWebSocket(server: HttpServer) {
         'https://www.websocketking.com',
         'https://postman.com',
         'https://www.postman.com',
+        'https://admin.socket.io',
         'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
       ],
       methods: ["GET", "POST", "OPTIONS"],
@@ -66,6 +68,12 @@ export function setupWebSocket(server: HttpServer) {
     allowUpgrades: true,
     upgradeTimeout: 10000,
     allowEIO3: true
+  });
+
+  // Initialize Socket.IO Admin UI
+  instrument(io, {
+    auth: false,
+    mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
   });
 
   const docNamespace = io.of('/document');
