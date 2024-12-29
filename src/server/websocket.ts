@@ -67,7 +67,7 @@ export function setupWebSocket(server: HttpServer) {
     allowEIO3: true
   });
 
-  const docNamespace = io.of<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>('/document');
+  const docNamespace = io.of('/document');
 
   // Authentication middleware
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
