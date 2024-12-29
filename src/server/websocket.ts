@@ -93,7 +93,7 @@ export function setupWebSocket(server: HttpServer) {
   }>();
 
   // Create Socket.IO server
-  const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
+  const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>({
     path: '/ws',
     cors: {
       origin: [
@@ -133,6 +133,9 @@ export function setupWebSocket(server: HttpServer) {
     cookie: false,
     serveClient: false
   });
+
+  // Attach to server after configuration
+  io.attach(server);
 
   // Add authentication middleware
   io.use(async (socket, next) => {
