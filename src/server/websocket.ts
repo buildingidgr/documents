@@ -92,6 +92,7 @@ export function setupWebSocket(server: HttpServer) {
     authenticated: boolean;
   }>();
 
+  // Create Socket.IO server
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
     path: '/ws',
     cors: {
@@ -114,14 +115,14 @@ export function setupWebSocket(server: HttpServer) {
     },
     // Connection settings
     transports: ['websocket'],
-    pingInterval: 10000,
-    pingTimeout: 5000,
+    pingInterval: 25000,
+    pingTimeout: 20000,
     connectTimeout: 10000,
     maxHttpBufferSize: 1e8,
-    // Allow upgrades for Socket.IO handshake
+    // Socket.IO options
     allowUpgrades: true,
-    upgradeTimeout: 5000,
-    // Enable compression for better performance
+    upgradeTimeout: 10000,
+    // Enable compression
     perMessageDeflate: {
       threshold: 1024,
       clientNoContextTakeover: true,
@@ -129,7 +130,10 @@ export function setupWebSocket(server: HttpServer) {
     },
     // Other options
     allowEIO3: true,
-    cookie: false
+    cookie: false,
+    serveClient: false,
+    // Prevent HTTP server interference
+    httpCompression: false
   });
 
   // Add authentication middleware
