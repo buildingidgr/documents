@@ -33,6 +33,7 @@ interface DocumentUpdate {
   documentId: string;
   userId: string;
   content: any;
+  data?: any;
 }
 
 export function setupWebSocket(server: HttpServer) {
@@ -191,7 +192,7 @@ export function setupWebSocket(server: HttpServer) {
           type: 'update',
           userId: socket.data.userId,
           documentId: socket.data.documentId,
-          data: data
+          content: data.content
         });
       } catch (error) {
         console.error('Document update error:', error);
