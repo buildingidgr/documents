@@ -71,31 +71,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           try {
             console.log('[Document Create] Creating version for document:', doc.id);
             
-            // Debug: Check if document exists
-            const docCheck = await tx.$executeRaw`
-              SELECT id FROM "Document" WHERE id = ${doc.id}
-            `;
-            console.log('[Document Create] Document check:', docCheck);
+            // Create version using Prisma with explicit logging
+            const version = await tx.version.create({
+              data: {
+                content: validatedInput.content as Prisma.InputJsonValue,
+                document: { 
+                  connect: { 
+                    id: doc.id 
+                  } 
+                },
+                user: { 
+                  connect: { 
+                    id: user.id 
+                  } 
+                }
+              },
+              select: {
+                id: true,
+                documentId: true,
+                userId: true
+              }
+            });
 
-            // Debug: Check if user exists
-            const userCheck = await tx.$executeRaw`
-              SELECT id FROM "User" WHERE id = ${user.id}
-            `;
-            console.log('[Document Create] User check:', userCheck);
+            if (!version) {
+              throw new Error('Version creation failed silently');
+            }
 
-            // Create version with raw SQL for debugging
-            const versionId = await tx.$executeRaw`
-              INSERT INTO "Version" (id, content, "documentId", "userId", "createdAt")
-              VALUES (
-                gen_random_uuid(),
-                ${validatedInput.content as unknown as Prisma.JsonValue},
-                ${doc.id},
-                ${user.id},
-                NOW()
-              )
-              RETURNING id
-            `;
-            console.log('[Document Create] Created version with ID:', versionId);
+            console.log('[Document Create] Created version:', {
+              id: version.id,
+              documentId: version.documentId,
+              userId: version.userId
+            });
 
           } catch (versionError) {
             console.error('[Document Create] Failed to create version:', 
