@@ -210,7 +210,11 @@ export function setupWebSocket(server: HttpServer) {
       ...stats,
       rawActiveConnections: io.engine.clientsCount,
       namespaceConnections: docNamespace.sockets.size,
-      engineState: io.engine.state,
+      engineInfo: {
+        clientsCount: io.engine.clientsCount,
+        middlewareCount: io.engine.middlewares?.length || 0,
+        path: io.engine.path
+      },
       timestamp: new Date().toISOString()
     });
   }, 60000); // Check every minute
