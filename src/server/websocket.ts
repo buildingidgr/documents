@@ -51,6 +51,11 @@ async function handleDocumentUpdate(
   socket: DocumentSocket,
   data: DocumentUpdate
 ) {
+  if (!socket.userId) {
+    socket.emit('error', { message: 'Not authenticated' });
+    return;
+  }
+
   try {
     // Verify document access
     const document = await db.document.findFirst({
@@ -58,7 +63,7 @@ async function handleDocumentUpdate(
         id: data.documentId,
         users: {
           some: {
-            id: socket.userId!
+            id: socket.userId
           }
         }
       }
@@ -78,7 +83,7 @@ async function handleDocumentUpdate(
         versions: {
           create: {
             content: data.data.content as Prisma.InputJsonValue,
-            user: { connect: { id: socket.userId! } }
+            user: { connect: { id: socket.userId } }
           }
         }
       }
@@ -101,6 +106,11 @@ async function handleCursorUpdate(
   socket: DocumentSocket,
   data: DocumentUpdate
 ) {
+  if (!socket.userId) {
+    socket.emit('error', { message: 'Not authenticated' });
+    return;
+  }
+
   // Broadcast cursor position to other clients in the room
   socket.to(data.documentId).emit('document:cursor', {
     type: 'cursor',
@@ -114,6 +124,11 @@ async function handlePresenceUpdate(
   socket: DocumentSocket,
   data: DocumentUpdate
 ) {
+  if (!socket.userId) {
+    socket.emit('error', { message: 'Not authenticated' });
+    return;
+  }
+
   // Broadcast presence update to other clients in the room
   socket.to(data.documentId).emit('document:presence', {
     type: 'presence',
