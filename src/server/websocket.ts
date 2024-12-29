@@ -118,12 +118,46 @@ export function setupWebSocket(server: HttpServer) {
     pingInterval: 10000,
     pingTimeout: 5000,
     connectTimeout: 10000,
-    transports: ['websocket'],
-    allowUpgrades: false,
+    transports: ['websocket', 'polling'],
+    allowUpgrades: true,
     maxHttpBufferSize: 1e8,
-    destroyUpgrade: false,
-    serveClient: false,
-    addTrailingSlash: false
+    perMessageDeflate: false,
+    httpCompression: false,
+    cors: {
+      credentials: true,
+      origin: true
+    },
+    allowRequest: (req, callback) => {
+      callback(null, true);
+    }
+  });
+
+  // Handle upgrade errors
+  server.on('upgrade', (req, socket, head) => {
+    console.log('Upgrade request received:', {
+      path: req.url,
+      headers: req.headers
+    });
+  });
+
+  // Add error handling for the server
+  io.engine.on('connection_error', (err: Error) => {
+    console.error('Connection error:', err);
+  });
+
+  io.engine.on('initial_headers', (headers: any, req: any) => {
+    headers['Access-Control-Allow-Origin'] = req.headers.origin || '*';
+    headers['Access-Control-Allow-Credentials'] = 'true';
+    console.log('Initial headers:', headers);
+  });
+
+  // Add connection event logging
+  io.engine.on('connection', (socket: any) => {
+    console.log('Engine connection event:', {
+      id: socket.id,
+      transport: socket.transport?.name,
+      headers: socket.request?.headers
+    });
   });
 
   // Create a dedicated namespace for document collaboration
@@ -131,25 +165,6 @@ export function setupWebSocket(server: HttpServer) {
 
   // Track connected sockets by user ID
   const connectedSockets = new Map<string, Set<string>>();
-
-  // Add error handling for the server
-  io.engine.on('connection_error', (err: Error) => {
-    console.error('Connection error:', err);
-  });
-
-  // Log all engine events for debugging
-  io.engine.on('initial_headers', (headers: any, req: any) => {
-    console.log('Initial headers:', headers);
-  });
-
-  io.engine.on('headers', (headers: any, req: any) => {
-    console.log('Headers:', headers);
-  });
-
-  // Add connection event logging
-  io.engine.on('connection', (socket: any) => {
-    console.log('Engine connection event, socket:', socket.id);
-  });
 
   // Authentication middleware for document namespace
   docNamespace.use(async (socket: DocumentSocket, next) => {
