@@ -92,6 +92,11 @@ export function setupWebSocket(server: HttpServer) {
     authenticated: boolean;
   }>();
 
+  // Rate limiting for connections
+  const connectionAttempts = new Map<string, { count: number; firstAttempt: number }>();
+  const RATE_LIMIT_WINDOW = 60000; // 1 minute
+  const MAX_ATTEMPTS = 5;
+
   // Create Socket.IO server
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
     path: '/ws',
@@ -133,7 +138,39 @@ export function setupWebSocket(server: HttpServer) {
     cookie: false,
     serveClient: false,
     // Prevent HTTP server interference
-    httpCompression: false
+    httpCompression: false,
+    // Connection handling
+    cleanupEmptyChildNamespaces: true
+  });
+
+  // Add connection rate limiting middleware
+  io.use((socket, next) => {
+    const clientIp = socket.handshake.headers['x-forwarded-for'] as string || 
+                    socket.handshake.headers['x-real-ip'] as string || 
+                    socket.handshake.address;
+
+    const now = Date.now();
+    const attempts = connectionAttempts.get(clientIp) || { count: 0, firstAttempt: now };
+
+    // Reset attempts if outside window
+    if (now - attempts.firstAttempt > RATE_LIMIT_WINDOW) {
+      attempts.count = 0;
+      attempts.firstAttempt = now;
+    }
+
+    attempts.count++;
+    connectionAttempts.set(clientIp, attempts);
+
+    if (attempts.count > MAX_ATTEMPTS) {
+      console.log('Rate limit exceeded:', {
+        clientIp,
+        attempts: attempts.count,
+        timestamp: new Date().toISOString()
+      });
+      return next(new Error('Too many connection attempts'));
+    }
+
+    next();
   });
 
   // Add authentication middleware
@@ -168,6 +205,25 @@ export function setupWebSocket(server: HttpServer) {
           timestamp: new Date().toISOString()
         });
         return next(new Error('Invalid token'));
+      }
+
+      // Check for existing connection with same userId
+      const existingConnection = Array.from(connections.entries())
+        .find(([_, conn]) => conn.userId === userId);
+
+      if (existingConnection) {
+        const [existingId, _] = existingConnection;
+        console.log('Existing connection found:', {
+          existingId,
+          userId,
+          timestamp: new Date().toISOString()
+        });
+        // Close the existing connection
+        const existingSocket = io.sockets.sockets.get(existingId);
+        if (existingSocket) {
+          existingSocket.disconnect(true);
+        }
+        connections.delete(existingId);
       }
 
       // Store connection info
@@ -226,6 +282,12 @@ export function setupWebSocket(server: HttpServer) {
     socket.on('disconnect', (reason) => {
       const conn = connections.get(socket.id);
       connections.delete(socket.id);
+      
+      // Clean up rate limiting for this client
+      const clientIp = socket.handshake.headers['x-forwarded-for'] as string || 
+                      socket.handshake.headers['x-real-ip'] as string || 
+                      socket.handshake.address;
+      connectionAttempts.delete(clientIp);
       
       console.log('Client disconnected:', {
         socketId: socket.id,
