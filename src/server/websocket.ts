@@ -10,6 +10,7 @@ interface EngineSocket {
   id: string;
   transport?: {
     name: string;
+    sid?: string;
   };
   request?: {
     headers: Record<string, string | string[] | undefined>;
@@ -24,6 +25,12 @@ interface SocketError {
   req?: {
     url?: string;
   };
+}
+
+// Add Socket.IO transport types
+interface Transport {
+  name: string;
+  sid: string;
 }
 
 interface ServerToClientEvents {
@@ -48,7 +55,16 @@ interface SocketData {
   documentId?: string;
 }
 
-type DocumentSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
+type DocumentSocket = Socket<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+> & {
+  conn: {
+    transport: Transport;
+  };
+};
 
 interface DocumentUpdate {
   type: string;
@@ -154,7 +170,7 @@ export function setupWebSocket(server: HttpServer) {
         transport: socket.transport?.name || 'unknown',
         namespaces: new Set(),
         authenticated: false,
-        engineId: socket.id
+        engineId: socket.transport?.sid || socket.id  // Use transport sid if available
       });
 
       // Log accurate connection stats
@@ -169,6 +185,7 @@ export function setupWebSocket(server: HttpServer) {
         if (conn && !conn.userId) {  // Only timeout unauthenticated connections
           console.log('Connection timeout - no authentication attempt:', {
             socketId: socket.id,
+            engineId: socket.transport?.sid,
             duration: Date.now() - conn.connectedAt.getTime(),
             timestamp: new Date().toISOString()
           });
@@ -390,13 +407,15 @@ export function setupWebSocket(server: HttpServer) {
 
   // Handle connections and disconnections in the document namespace
   docNamespace.on('connection', (socket: DocumentSocket) => {
-    // Find the engine connection
-    const engineConn = Array.from(connections.values()).find(c => c.engineId === socket.conn.id);
+    // Find the engine connection using the public method
+    const engineId = socket.conn.transport.sid;
+    const engineConn = Array.from(connections.values()).find(c => c.engineId === engineId);
+    
     if (engineConn) {
       // Update the namespace connection with engine connection info
       const conn = connections.get(socket.id);
       if (conn) {
-        conn.engineId = socket.conn.id;
+        conn.engineId = engineId;
         conn.lastPing = engineConn.lastPing;
         connections.set(socket.id, conn);
       }
@@ -404,7 +423,7 @@ export function setupWebSocket(server: HttpServer) {
 
     console.log('Client connected to document namespace:', {
       socketId: socket.id,
-      engineId: socket.conn.id,
+      engineId: engineId,
       userId: socket.data.userId,
       transport: socket.conn?.transport?.name,
       timestamp: new Date().toISOString()
