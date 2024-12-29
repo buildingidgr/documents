@@ -58,13 +58,12 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
-    transports: ['websocket', 'polling'],
-    pingInterval: 10000,
-    pingTimeout: 5000,
-    connectTimeout: 30000,
-    maxHttpBufferSize: 1e8,
+    transports: ['polling', 'websocket'],
+    pingInterval: 5000,
+    pingTimeout: 3000,
+    connectTimeout: 10000,
     allowUpgrades: true,
-    upgradeTimeout: 10000,
+    upgradeTimeout: 5000,
     allowEIO3: true,
     perMessageDeflate: false,
     httpCompression: false,
@@ -72,7 +71,12 @@ export function setupWebSocket(server: HttpServer) {
       console.log('Socket.IO connection request:', {
         headers: req.headers,
         url: req.url,
-        method: req.method
+        method: req.method,
+        forwarded: {
+          proto: req.headers['x-forwarded-proto'],
+          host: req.headers['x-forwarded-host'],
+          for: req.headers['x-forwarded-for']
+        }
       });
       callback(null, true);
     },
@@ -88,8 +92,22 @@ export function setupWebSocket(server: HttpServer) {
       protocol: socket.protocol,
       request: {
         url: socket.request.url,
-        headers: socket.request.headers
+        headers: socket.request.headers,
+        forwarded: {
+          proto: socket.request.headers['x-forwarded-proto'],
+          host: socket.request.headers['x-forwarded-host'],
+          for: socket.request.headers['x-forwarded-for']
+        }
       }
+    });
+
+    // Handle transport change
+    socket.on('upgrade', (transport) => {
+      console.log('Socket transport upgraded:', {
+        id: socket.id,
+        from: socket.protocol,
+        to: transport.name
+      });
     });
   });
 
@@ -97,14 +115,13 @@ export function setupWebSocket(server: HttpServer) {
     headers['Access-Control-Allow-Origin'] = '*';
     headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
     headers['Access-Control-Allow-Credentials'] = 'true';
-    headers['Connection'] = 'Upgrade';
-    headers['Upgrade'] = 'websocket';
     
-    console.log('Socket.IO initial headers:', {
-      headers,
-      url: req.url,
-      method: req.method
-    });
+    if (req.headers.upgrade?.toLowerCase() === 'websocket') {
+      headers['Connection'] = 'Upgrade';
+      headers['Upgrade'] = 'websocket';
+    }
+    
+    console.log('Socket.IO initial headers:', { headers, url: req.url, method: req.method });
   });
 
   io.engine.on('headers', (headers: any, req: any) => {
