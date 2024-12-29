@@ -162,102 +162,66 @@ export function setupWebSocket(server: HttpServer) {
         'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
       ],
       methods: ["GET", "POST", "OPTIONS"],
-      allowedHeaders: ["Authorization", "Content-Type", "my-custom-header"],
-      credentials: true,
-      maxAge: 86400 // 24 hours
+      allowedHeaders: ["Authorization", "Content-Type"],
+      credentials: true
     },
-    // Transport configuration
-    transports: ['polling', 'websocket'], // Start with polling, then upgrade
+    transports: ['polling', 'websocket'],
     allowUpgrades: true,
-    upgradeTimeout: 10000,
-    // Timeouts
     pingInterval: 25000,
     pingTimeout: 20000,
-    connectTimeout: 45000,
-    // Request handling
-    allowRequest: (req: IncomingMessage, callback: (err: string | null | undefined, success: boolean) => void) => {
-      const origin = req.headers.origin;
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'https://localhost:3000',
-        'https://documents-production.up.railway.app',
-        'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
-      ];
+    connectTimeout: 45000
+  });
 
-      // Allow requests without origin (like from Postman)
-      if (!origin) {
-        callback(null, true);
+  // Add authentication at the engine level
+  io.engine.use(async (req: IncomingMessage & { _query?: { sid?: string }; userId?: string }, res: ServerResponse, next: (err?: Error) => void) => {
+    try {
+      // Only authenticate handshake requests
+      const isHandshake = req._query?.sid === undefined;
+      if (!isHandshake) {
+        next();
         return;
       }
 
-      // Check if origin is allowed
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      // Reject other origins
-      callback(null, false);
-    },
-    // Connection state recovery
-    connectionStateRecovery: {
-      // the backup duration of the sessions and the packets
-      maxDisconnectionDuration: 2 * 60 * 1000,
-      // whether to skip middlewares upon successful recovery
-      skipMiddlewares: true,
-    }
-  });
-
-  // Add CORS headers to engine handshake and upgrade requests
-  io.engine.on('initial_headers', (headers: any, req: any) => {
-    headers['Access-Control-Allow-Origin'] = req.headers.origin || '*';
-    headers['Access-Control-Allow-Credentials'] = 'true';
-    headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS';
-    headers['Access-Control-Allow-Headers'] = 'Authorization,Content-Type,my-custom-header';
-    headers['Access-Control-Max-Age'] = '86400';
-  });
-
-  io.engine.on('headers', (headers: any, req: any) => {
-    headers['Access-Control-Allow-Origin'] = req.headers.origin || '*';
-    headers['Access-Control-Allow-Credentials'] = 'true';
-    headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS';
-    headers['Access-Control-Allow-Headers'] = 'Authorization,Content-Type,my-custom-header';
-    headers['Access-Control-Max-Age'] = '86400';
-  });
-
-  // Handle authentication at the engine level for all HTTP requests
-  io.engine.use((req: IncomingMessage & { _query?: { sid?: string }; userId?: string }, res: ServerResponse, next: (err?: Error) => void) => {
-    const isHandshake = req._query?.sid === undefined;
-    if (isHandshake) {
-      // Only apply auth for handshake requests
       const token = req.headers.authorization?.split(' ')[1];
       if (!token) {
         next();
         return;
       }
 
-      authenticateUser(token)
-        .then(userId => {
-          if (userId) {
-            req.userId = userId;
-          }
-          next();
-        })
-        .catch(err => {
-          console.error('Auth error:', err);
-          next();
-        });
-    } else {
+      const userId = await authenticateUser(token);
+      if (userId) {
+        req.userId = userId;
+        console.log('Engine auth success:', { userId });
+      }
+      next();
+    } catch (error) {
+      console.error('Engine auth error:', error);
       next();
     }
   });
 
-  // Add error handling for the server
-  io.engine.on('connection_error', (err: Error) => {
-    console.error('Connection error:', err);
+  // Add CORS headers at the engine level
+  io.engine.use((req: IncomingMessage, res: ServerResponse, next: (err?: Error) => void) => {
+    const origin = req.headers.origin || '*';
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    next();
   });
 
-  // Add connection event logging
+  // Log all engine events for debugging
+  io.engine.on('connection_error', (err: Error) => {
+    console.error('Engine connection error:', err);
+  });
+
   io.engine.on('connection', (socket: any) => {
     console.log('Engine connection event:', {
       id: socket.id,
