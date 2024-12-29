@@ -118,14 +118,13 @@ export function setupWebSocket(server: HttpServer) {
     pingInterval: 10000,
     pingTimeout: 5000,
     connectTimeout: 10000,
-    transports: ['websocket', 'polling'],
-    allowUpgrades: true,
+    transports: ['websocket'],
+    allowUpgrades: false,
     maxHttpBufferSize: 1e8,
     perMessageDeflate: {
       threshold: 1024
     },
-    cleanupEmptyChildNamespaces: true,
-    connectionStateRecovery: false // Disable state recovery to force clean reconnects
+    cleanupEmptyChildNamespaces: true
   });
 
   // Track connected sockets by user ID
