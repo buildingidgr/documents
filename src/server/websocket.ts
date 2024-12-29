@@ -92,15 +92,9 @@ export function setupWebSocket(server: HttpServer) {
     authenticated: boolean;
   }>();
 
-  // Log server state before setup
-  console.log('Server state before Socket.IO setup:', {
-    listeners: server.listeners('upgrade').length,
-    timestamp: new Date().toISOString()
-  });
-
   // Create Socket.IO server
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
-    path: '/socket.io', // Change path to avoid conflict with HTTP routes
+    path: '/ws',
     cors: {
       origin: [
         'http://localhost:3000',
@@ -140,47 +134,12 @@ export function setupWebSocket(server: HttpServer) {
     serveClient: false
   });
 
-  // Log server state after setup
-  console.log('Server state after Socket.IO setup:', {
-    listeners: server.listeners('upgrade').length,
-    path: '/socket.io',
-    timestamp: new Date().toISOString()
-  });
-
-  // Add request logging middleware
-  server.on('request', (req: IncomingMessage, res: ServerResponse) => {
-    console.log('HTTP request received:', {
-      method: req.method,
-      url: req.url,
-      headers: {
-        upgrade: req.headers.upgrade,
-        connection: req.headers.connection,
-        origin: req.headers.origin
-      },
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // Add upgrade logging
-  server.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
-    console.log('Upgrade request received:', {
-      url: req.url,
-      headers: {
-        upgrade: req.headers.upgrade,
-        connection: req.headers.connection,
-        origin: req.headers.origin
-      },
-      timestamp: new Date().toISOString()
-    });
-  });
-
   // Add authentication middleware
   io.use(async (socket, next) => {
     try {
       console.log('Socket connection attempt:', {
         id: socket.id,
         handshake: socket.handshake,
-        enginePath: io.engine.path,
         timestamp: new Date().toISOString()
       });
 
@@ -243,7 +202,6 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Client connected:', {
       socketId: socket.id,
       userId: socket.data.userId,
-      path: '/socket.io',
       timestamp: new Date().toISOString()
     });
 
@@ -274,7 +232,6 @@ export function setupWebSocket(server: HttpServer) {
         wasAuthenticated: !!socket.data.userId,
         duration: conn ? Date.now() - conn.connectedAt.getTime() : 0,
         lastPing: conn?.lastPing,
-        path: '/socket.io',
         timestamp: new Date().toISOString()
       });
     });
@@ -286,7 +243,6 @@ export function setupWebSocket(server: HttpServer) {
         userId: socket.data.userId,
         error: error.message,
         stack: error.stack,
-        path: '/socket.io',
         timestamp: new Date().toISOString()
       });
     });
@@ -300,11 +256,69 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Client connected to document namespace:', {
       socketId: socket.id,
       userId: socket.data.userId,
-      path: '/socket.io',
       timestamp: new Date().toISOString()
     });
 
-    // Rest of the document namespace code remains the same...
+    // Handle document events
+    socket.on('document:join', async (documentId: string) => {
+      try {
+        // Store document ID
+        socket.data.documentId = documentId;
+        const conn = connections.get(socket.id);
+        if (conn) {
+          conn.documentId = documentId;
+        }
+
+        // Join the document room
+        await socket.join(documentId);
+
+        // Notify others
+        socket.to(documentId).emit('document:joined', {
+          documentId,
+          userId: socket.data.userId!
+        });
+
+        console.log('Client joined document:', {
+          socketId: socket.id,
+          userId: socket.data.userId,
+          documentId,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        console.error('Error joining document:', {
+          socketId: socket.id,
+          userId: socket.data.userId,
+          documentId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date().toISOString()
+        });
+        socket.emit('error', { message: 'Failed to join document' });
+      }
+    });
+
+    socket.on('document:update', async (data: DocumentUpdate) => {
+      try {
+        // Broadcast the update to others in the document
+        socket.to(data.documentId).emit('document:update', data);
+
+        console.log('Document update:', {
+          socketId: socket.id,
+          userId: socket.data.userId,
+          documentId: data.documentId,
+          type: data.type,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        console.error('Error updating document:', {
+          socketId: socket.id,
+          userId: socket.data.userId,
+          documentId: data.documentId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date().toISOString()
+        });
+        socket.emit('error', { message: 'Failed to update document' });
+      }
+    });
   });
 
   return io;
