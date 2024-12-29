@@ -161,55 +161,68 @@ export function setupWebSocket(server: HttpServer) {
         'https://www.postman.com',
         'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
       ],
-      methods: ['GET', 'POST'],
+      methods: ["GET", "POST", "OPTIONS"],
+      allowedHeaders: ["Authorization", "Content-Type", "my-custom-header"],
       credentials: true,
-      allowedHeaders: ['Authorization', 'Content-Type']
+      maxAge: 86400 // 24 hours
     },
-    // Increase timeouts for Railway's proxy
+    // Transport configuration
+    transports: ['polling', 'websocket'], // Start with polling, then upgrade
+    allowUpgrades: true,
+    upgradeTimeout: 10000,
+    // Timeouts
     pingInterval: 25000,
     pingTimeout: 20000,
-    connectTimeout: 30000,
-    // Allow both transports but prefer WebSocket
-    transports: ['websocket', 'polling'],
-    allowUpgrades: true,
-    upgradeTimeout: 30000,
-    maxHttpBufferSize: 1e8,
-    // Handle Railway's proxy headers
+    connectTimeout: 45000,
+    // Request handling
     allowRequest: (req: IncomingMessage, callback: (err: string | null | undefined, success: boolean) => void) => {
-      // Trust Railway's proxy headers
-      const forwardedProto = req.headers['x-forwarded-proto'];
-      const forwardedHost = req.headers['x-forwarded-host'];
-      
-      if (forwardedProto && forwardedHost) {
-        // Ensure the request is coming through Railway's proxy
-        if (forwardedHost.includes('railway.app')) {
-          callback(null, true);
-          return;
-        }
-      }
-      
-      // For local development
-      if (process.env.NODE_ENV !== 'production') {
+      const origin = req.headers.origin;
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'https://localhost:3000',
+        'https://documents-production.up.railway.app',
+        'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
+      ];
+
+      // Allow requests without origin (like from Postman)
+      if (!origin) {
         callback(null, true);
         return;
       }
 
+      // Check if origin is allowed
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      // Reject other origins
       callback(null, false);
     },
-    // Compression settings
-    perMessageDeflate: {
-      threshold: 2048, // Only compress messages larger than 2KB
-      clientNoContextTakeover: true,
-      serverNoContextTakeover: true
-    },
-    // Cookie settings for sticky sessions
-    cookie: {
-      name: 'io',
-      path: '/',
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production'
+    // Connection state recovery
+    connectionStateRecovery: {
+      // the backup duration of the sessions and the packets
+      maxDisconnectionDuration: 2 * 60 * 1000,
+      // whether to skip middlewares upon successful recovery
+      skipMiddlewares: true,
     }
+  });
+
+  // Add CORS headers to engine handshake and upgrade requests
+  io.engine.on('initial_headers', (headers: any, req: any) => {
+    headers['Access-Control-Allow-Origin'] = req.headers.origin || '*';
+    headers['Access-Control-Allow-Credentials'] = 'true';
+    headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS';
+    headers['Access-Control-Allow-Headers'] = 'Authorization,Content-Type,my-custom-header';
+    headers['Access-Control-Max-Age'] = '86400';
+  });
+
+  io.engine.on('headers', (headers: any, req: any) => {
+    headers['Access-Control-Allow-Origin'] = req.headers.origin || '*';
+    headers['Access-Control-Allow-Credentials'] = 'true';
+    headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS';
+    headers['Access-Control-Allow-Headers'] = 'Authorization,Content-Type,my-custom-header';
+    headers['Access-Control-Max-Age'] = '86400';
   });
 
   // Handle authentication at the engine level for all HTTP requests
