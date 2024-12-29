@@ -212,9 +212,9 @@ export function setupWebSocket(server: HttpServer) {
       namespaceConnections: docNamespace.sockets.size,
       engineInfo: {
         clientsCount: io.engine.clientsCount,
-        namespaces: Array.from(io.of().sockets.keys()).length,
         mainNamespaceConnections: io.sockets.size,
-        documentNamespaceConnections: docNamespace.sockets.size
+        documentNamespaceConnections: docNamespace.sockets.size,
+        totalConnections: connections.size
       },
       timestamp: new Date().toISOString()
     });
