@@ -36,14 +36,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Validate input
     const validatedInput = documentInputSchema.parse(req.body);
-    process.stdout.write(`[Document Create] Validated input: ${JSON.stringify(validatedInput)}\n`);
+    console.log('[Document Create] Validated input:', validatedInput);
 
     try {
       // Wrap all database operations in a single transaction with retries
       const result = await db.$transaction(
         async (tx) => {
           // Ensure user exists in database
-          process.stdout.write(`[Document Create] Creating/updating user: ${userId}\n`);
+          console.log('[Document Create] Creating/updating user:', userId);
           const user = await tx.user.upsert({
             where: { id: userId },
             update: {},
@@ -52,8 +52,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               name: null,
             },
           });
+          console.log('[Document Create] User created/updated:', user.id);
 
           // Create document with user association
+          console.log('[Document Create] Creating document...');
           const doc = await tx.document.create({
             data: {
               title: validatedInput.title,
@@ -63,12 +65,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               }
             }
           });
-
-          process.stdout.write(`[Document Create] Created document: ${doc.id}\n`);
+          console.log('[Document Create] Created document:', doc.id);
 
           // Create initial version
           try {
-            process.stdout.write(`[Document Create] Creating version for document: ${doc.id}\n`);
+            console.log('[Document Create] Creating version for document:', doc.id);
             const version = await tx.version.create({
               data: {
                 content: validatedInput.content as Prisma.InputJsonValue,
@@ -76,13 +77,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 user: { connect: { id: user.id } }
               }
             });
-            process.stdout.write(`[Document Create] Created version: ${version.id}\n`);
+            console.log('[Document Create] Created version:', version.id);
           } catch (versionError) {
-            process.stderr.write(`[Document Create] Failed to create version: ${versionError instanceof Error ? versionError.message : 'Unknown error'}\n`);
+            console.error('[Document Create] Failed to create version:', 
+              versionError instanceof Error ? versionError.message : 'Unknown error'
+            );
             throw versionError;
           }
 
           // Fetch complete document with associations
+          console.log('[Document Create] Fetching complete document...');
           const fullDoc = await tx.document.findFirstOrThrow({
             where: { 
               id: doc.id,
@@ -145,7 +149,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               retryAfter: 1
             });
           default:
-            process.stderr.write(`[Document Create] Database error: ${dbError.message}\n`);
+            console.error('[Document Create] Database error:', dbError.message);
             return res.status(500).json({ error: 'Database operation failed' });
         }
       }
