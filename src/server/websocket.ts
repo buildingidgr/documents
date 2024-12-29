@@ -164,6 +164,7 @@ export function setupWebSocket(server: HttpServer) {
       id: rawSocket.id,
       headers: rawSocket.request?.headers,
       query: rawSocket.request?._query,
+      handshake: rawSocket.handshake,
       timestamp: new Date().toISOString()
     });
 
@@ -173,50 +174,54 @@ export function setupWebSocket(server: HttpServer) {
       const token = authHeader?.startsWith('Bearer ') 
         ? authHeader.substring(7) 
         : rawSocket.request?.headers?.auth 
-          || rawSocket.request?._query?.token;
+          || rawSocket.request?._query?.token
+          || rawSocket.handshake?.auth?.token
+          || rawSocket.request?.headers?.['x-auth-token'];
 
       if (!token) {
         console.log('No auth token found:', {
           id: rawSocket.id,
           headers: rawSocket.request?.headers,
           query: rawSocket.request?._query,
+          handshake: rawSocket.handshake,
           timestamp: new Date().toISOString()
         });
-        rawSocket.close();
+
+        // Instead of closing immediately, wait for auth data
+        const authTimeout = setTimeout(() => {
+          console.log('Auth timeout reached:', {
+            id: rawSocket.id,
+            timestamp: new Date().toISOString()
+          });
+          rawSocket.close();
+        }, 5000);
+
+        // Listen for handshake data
+        rawSocket.on('handshake', (handshakeData: any) => {
+          console.log('Handshake received:', {
+            id: rawSocket.id,
+            handshakeData,
+            timestamp: new Date().toISOString()
+          });
+
+          clearTimeout(authTimeout);
+          const handshakeToken = handshakeData?.auth?.token;
+          if (handshakeToken) {
+            handleAuthentication(handshakeToken, rawSocket);
+          } else {
+            console.log('No token in handshake:', {
+              id: rawSocket.id,
+              handshakeData,
+              timestamp: new Date().toISOString()
+            });
+            rawSocket.close();
+          }
+        });
+
         return;
       }
 
-      console.log('Found auth token:', {
-        id: rawSocket.id,
-        token,
-        timestamp: new Date().toISOString()
-      });
-
-      const userId = await authenticateUser(token);
-      if (!userId) {
-        console.log('Invalid token:', {
-          id: rawSocket.id,
-          timestamp: new Date().toISOString()
-        });
-        rawSocket.close();
-        return;
-      }
-
-      // Store connection info
-      connections.set(rawSocket.id, {
-        userId,
-        connectedAt: new Date(),
-        transport: rawSocket.transport?.name || 'unknown',
-        namespaces: new Set(['/document']),
-        engineId: rawSocket.id,
-        authenticated: true
-      });
-
-      console.log('Engine authentication successful:', {
-        id: rawSocket.id,
-        userId,
-        timestamp: new Date().toISOString()
-      });
+      await handleAuthentication(token, rawSocket);
     } catch (error) {
       console.error('Engine authentication error:', {
         id: rawSocket.id,
@@ -227,6 +232,41 @@ export function setupWebSocket(server: HttpServer) {
       rawSocket.close();
     }
   });
+
+  // Helper function to handle authentication
+  async function handleAuthentication(token: string, rawSocket: any) {
+    console.log('Found auth token:', {
+      id: rawSocket.id,
+      token,
+      timestamp: new Date().toISOString()
+    });
+
+    const userId = await authenticateUser(token);
+    if (!userId) {
+      console.log('Invalid token:', {
+        id: rawSocket.id,
+        timestamp: new Date().toISOString()
+      });
+      rawSocket.close();
+      return;
+    }
+
+    // Store connection info
+    connections.set(rawSocket.id, {
+      userId,
+      connectedAt: new Date(),
+      transport: rawSocket.transport?.name || 'unknown',
+      namespaces: new Set(['/document']),
+      engineId: rawSocket.id,
+      authenticated: true
+    });
+
+    console.log('Engine authentication successful:', {
+      id: rawSocket.id,
+      userId,
+      timestamp: new Date().toISOString()
+    });
+  }
 
   // Monitor all connections
   io.on('connection', (socket: Socket) => {
