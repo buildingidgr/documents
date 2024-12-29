@@ -154,7 +154,8 @@ export function setupWebSocket(server: HttpServer) {
       closeCode: null as string | number | null,
       upgradeAttempts: 0,
       authenticated: false,
-      handshakeCompleted: false
+      handshakeCompleted: false,
+      authenticationAttempted: false
     };
 
     // Track initial connection
@@ -165,6 +166,37 @@ export function setupWebSocket(server: HttpServer) {
       state: connectionState,
       timestamp: new Date().toISOString()
     });
+
+    // Handle initial authentication
+    const handleAuthentication = async (token: string) => {
+      try {
+        const userId = await authenticateUser(token);
+        if (userId) {
+          connectionState.authenticated = true;
+          connections.set(rawSocket.id, {
+            userId,
+            connectedAt: new Date(),
+            transport: rawSocket.transport?.name || 'unknown',
+            namespaces: new Set(['/document']),
+            engineId: rawSocket.id,
+            authenticated: true
+          });
+          console.log('Engine-level authentication successful:', {
+            socketId: rawSocket.id,
+            userId,
+            timestamp: new Date().toISOString()
+          });
+          return true;
+        }
+      } catch (error) {
+        console.error('Engine-level authentication failed:', {
+          socketId: rawSocket.id,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date().toISOString()
+        });
+      }
+      return false;
+    };
 
     // Track handshake completion
     rawSocket.on('handshake', (handshake: any) => {
@@ -211,7 +243,7 @@ export function setupWebSocket(server: HttpServer) {
     });
 
     // Track all packets for debugging
-    rawSocket.on('packet', (packet: any) => {
+    rawSocket.on('packet', async (packet: any) => {
       connectionState.lastActivity = Date.now();
       
       // Log the packet details
@@ -228,19 +260,27 @@ export function setupWebSocket(server: HttpServer) {
             timestamp: new Date().toISOString()
           });
 
-          // Handle authentication message
-          if (packet.data.charAt(0) === '0' && data.token) {
-            console.log('Authentication token received:', {
+          // Handle authentication message (type 0 is connect)
+          if (packet.data.charAt(0) === '0' && data.token && !connectionState.authenticationAttempted) {
+            connectionState.authenticationAttempted = true;
+            console.log('Processing authentication token:', {
               socketId: rawSocket.id,
               state: connectionState,
               timestamp: new Date().toISOString()
             });
+
+            const success = await handleAuthentication(data.token);
+            if (!success) {
+              // Force close the connection if authentication fails
+              rawSocket.close();
+            }
           }
         } catch (error) {
-          console.log('Packet received:', {
+          console.log('Packet received (parse error):', {
             socketId: rawSocket.id,
             type: packet.type,
             data: packet.data,
+            error: error instanceof Error ? error.message : 'Unknown error',
             state: connectionState,
             timestamp: new Date().toISOString()
           });
