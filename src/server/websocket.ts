@@ -110,9 +110,11 @@ export function setupWebSocket(server: HttpServer) {
         'https://admin.socket.io',
         'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
       ],
-      methods: ["GET", "POST"],
-      allowedHeaders: ["Authorization"],
-      credentials: true
+      methods: ["GET", "POST", "OPTIONS"],
+      allowedHeaders: ["Authorization", "Content-Type", "Accept"],
+      credentials: true,
+      preflightContinue: false,
+      optionsSuccessStatus: 204
     },
     transports: ['websocket'],
     pingInterval: 25000,        // Increased ping interval
@@ -125,20 +127,10 @@ export function setupWebSocket(server: HttpServer) {
       threshold: 2048,
       clientNoContextTakeover: true,
       serverNoContextTakeover: true
-    },
-    // Handle connection directly
-    handlePreflightRequest: (req: IncomingMessage, res: ServerResponse) => {
-      res.writeHead(200, {
-        "Access-Control-Allow-Origin": req.headers.origin || "*",
-        "Access-Control-Allow-Methods": "GET,POST",
-        "Access-Control-Allow-Headers": "Authorization",
-        "Access-Control-Allow-Credentials": "true"
-      });
-      res.end();
     }
   });
 
-  // Attach to server without interfering with HTTP routes
+  // Handle WebSocket upgrades separately
   server.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
     if (req.url?.startsWith('/ws')) {
       // Handle WebSocket upgrades separately from HTTP
