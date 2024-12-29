@@ -107,7 +107,8 @@ export function setupWebSocket(server: HttpServer) {
         'https://websocketking.com',
         'https://www.websocketking.com',
         'https://postman.com',
-        'https://www.postman.com'
+        'https://www.postman.com',
+        'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
       ],
       methods: ['GET', 'POST'],
       credentials: true,
@@ -117,7 +118,13 @@ export function setupWebSocket(server: HttpServer) {
     pingInterval: 15000,
     pingTimeout: 10000,
     connectTimeout: 10000,
-    transports: ['websocket']
+    transports: ['websocket'],
+    allowUpgrades: true,
+    upgradeTimeout: 10000,
+    maxHttpBufferSize: 1e8,
+    perMessageDeflate: {
+      threshold: 1024
+    }
   });
 
   // Add error handling for the server
@@ -130,10 +137,11 @@ export function setupWebSocket(server: HttpServer) {
     try {
       console.log('Authenticating socket connection...', {
         auth: socket.handshake.auth,
-        headers: socket.handshake.headers
+        headers: socket.handshake.headers,
+        query: socket.handshake.query
       });
 
-      const token = socket.handshake.auth.token;
+      const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
       if (!token) {
         return next(new Error('Authentication required'));
       }

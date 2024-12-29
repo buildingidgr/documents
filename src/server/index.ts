@@ -88,16 +88,19 @@ async function main() {
       const upgradeHeader = request.headers['upgrade'];
       const path = request.url;
 
-      // Only handle WebSocket upgrades for /ws path
-      if (upgradeHeader !== 'websocket' || !path?.startsWith('/ws')) {
+      if (!path?.startsWith('/ws')) {
         socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
         return;
       }
 
       console.log('WebSocket upgrade request received for path:', path);
+      
+      // Let Socket.IO handle the upgrade
+      const io = setupWebSocket(server);
+      io.engine.handleUpgrade(request, socket, head);
     });
 
-    // Initialize Socket.IO
+    // Initialize Socket.IO once
     const io = setupWebSocket(server);
 
     // Add health check endpoint
