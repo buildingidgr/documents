@@ -1,5 +1,7 @@
 import { Server as HttpServer, IncomingMessage } from 'http';
 import { Server, Socket } from 'socket.io';
+import { Socket as EngineSocket } from 'engine.io';
+import { Transport } from 'engine.io';
 import { authenticateUser } from './auth';
 import { db } from './db';
 import { Prisma } from '@prisma/client';
@@ -67,7 +69,7 @@ export function setupWebSocket(server: HttpServer) {
     allowEIO3: true,
     perMessageDeflate: false,
     httpCompression: false,
-    allowRequest: (req, callback) => {
+    allowRequest: (req: IncomingMessage, callback: (err: string | null, success: boolean) => void) => {
       console.log('Socket.IO connection request:', {
         headers: req.headers,
         url: req.url,
@@ -86,7 +88,7 @@ export function setupWebSocket(server: HttpServer) {
   // Track active connections
   const activeConnections = new Map<string, { userId?: string; documentId?: string }>();
 
-  io.engine.on('connection', (socket) => {
+  io.engine.on('connection', (socket: EngineSocket) => {
     console.log('Engine.IO connection established:', {
       id: socket.id,
       protocol: socket.protocol,
@@ -102,7 +104,7 @@ export function setupWebSocket(server: HttpServer) {
     });
 
     // Handle transport change
-    socket.on('upgrade', (transport) => {
+    socket.on('upgrade', (transport: Transport) => {
       console.log('Socket transport upgraded:', {
         id: socket.id,
         from: socket.protocol,
@@ -111,7 +113,7 @@ export function setupWebSocket(server: HttpServer) {
     });
   });
 
-  io.engine.on('initial_headers', (headers: any, req: any) => {
+  io.engine.on('initial_headers', (headers: Record<string, string>, req: IncomingMessage) => {
     headers['Access-Control-Allow-Origin'] = '*';
     headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
     headers['Access-Control-Allow-Credentials'] = 'true';
@@ -124,7 +126,7 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Socket.IO initial headers:', { headers, url: req.url, method: req.method });
   });
 
-  io.engine.on('headers', (headers: any, req: any) => {
+  io.engine.on('headers', (headers: Record<string, string>, req: IncomingMessage) => {
     headers['Access-Control-Allow-Origin'] = '*';
     headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
     headers['Access-Control-Allow-Credentials'] = 'true';
@@ -161,7 +163,7 @@ export function setupWebSocket(server: HttpServer) {
     activeConnections.set(socket.id, {});
 
     // Handle disconnection
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', (reason: string) => {
       const connectionInfo = activeConnections.get(socket.id);
       console.log('Client disconnected:', {
         reason,
