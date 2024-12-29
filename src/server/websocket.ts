@@ -133,25 +133,25 @@ export function setupWebSocket(server: HttpServer) {
   const connectedSockets = new Map<string, Set<string>>();
 
   // Add error handling for the server
-  docNamespace.engine.on('connection_error', (err: Error) => {
+  io.engine.on('connection_error', (err: Error) => {
     console.error('Connection error:', err);
   });
 
   // Log all engine events for debugging
-  docNamespace.engine.on('initial_headers', (headers: any, req: any) => {
+  io.engine.on('initial_headers', (headers: any, req: any) => {
     console.log('Initial headers:', headers);
   });
 
-  docNamespace.engine.on('headers', (headers: any, req: any) => {
+  io.engine.on('headers', (headers: any, req: any) => {
     console.log('Headers:', headers);
   });
 
   // Add connection event logging
-  docNamespace.engine.on('connection', (socket: any) => {
+  io.engine.on('connection', (socket: any) => {
     console.log('Engine connection event, socket:', socket.id);
   });
 
-  // Authentication middleware
+  // Authentication middleware for document namespace
   docNamespace.use(async (socket: DocumentSocket, next) => {
     try {
       console.log('Authenticating socket connection...', {
@@ -159,7 +159,8 @@ export function setupWebSocket(server: HttpServer) {
         headers: socket.handshake.headers,
         query: socket.handshake.query,
         id: socket.id,
-        transport: socket.conn?.transport?.name
+        transport: socket.conn?.transport?.name,
+        namespace: socket.nsp.name
       });
 
       const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
@@ -184,7 +185,7 @@ export function setupWebSocket(server: HttpServer) {
         }
         connectedSockets.get(userId)?.add(socket.id);
 
-        console.log('Socket authenticated for user:', userId, 'socket:', socket.id);
+        console.log('Socket authenticated for user:', userId, 'socket:', socket.id, 'namespace:', socket.nsp.name);
         next();
       } catch (error) {
         console.error('Token validation error:', error);
@@ -197,7 +198,7 @@ export function setupWebSocket(server: HttpServer) {
   });
 
   docNamespace.on('connection', async (socket: DocumentSocket) => {
-    console.log('Client connected:', socket.userId);
+    console.log('Client connected:', socket.userId, 'namespace:', socket.nsp.name);
 
     // Handle document join
     socket.on('document:join', async (documentId: string) => {
@@ -264,7 +265,7 @@ export function setupWebSocket(server: HttpServer) {
 
     // Handle disconnection
     socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.userId);
+      console.log('Client disconnected:', socket.userId, 'namespace:', socket.nsp.name);
       // Clean up the socket tracking
       if (socket.userId) {
         const userSockets = connectedSockets.get(socket.userId);
