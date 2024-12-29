@@ -127,6 +127,12 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
+  // Create document namespace
+  const docNamespace = io.of('/document');
+  
+  // Set higher max listeners if needed
+  docNamespace.setMaxListeners(20);  // Increase from default 10 to 20
+
   // Helper function to get accurate connection stats
   function getConnectionStats() {
     const now = Date.now();
@@ -201,14 +207,89 @@ export function setupWebSocket(server: HttpServer) {
     };
 
     // Clear timeout on authentication or disconnection
-    io.of('/document').on('connection', (socket: DocumentSocket) => {
+    const connectionHandler = (socket: DocumentSocket) => {
       clearTimeout(connectionTimeout);
-    });
+    };
 
-    // Handle socket closure
+    // Add the listener with a unique name
+    const listenerName = `connection-${socket.id}`;
+    docNamespace.on('connection', connectionHandler);
+
+    // Handle socket closure and cleanup
     if (socket.request && socket.request.socket) {
-      socket.request.socket.once('close', cleanup);
+      socket.request.socket.once('close', () => {
+        cleanup();
+        // Remove the connection listener
+        docNamespace.removeListener('connection', connectionHandler);
+      });
     }
+  });
+
+  // Monitor heartbeats for all sockets
+  docNamespace.on('connection', (socket: DocumentSocket) => {
+    // Find the engine connection using the public method
+    const engineId = socket.conn.transport.sid;
+    const engineConn = Array.from(connections.values()).find(c => c.engineId === engineId);
+    
+    if (engineConn) {
+      // Update the namespace connection with engine connection info
+      const conn = connections.get(socket.id);
+      if (conn) {
+        conn.engineId = engineId;
+        conn.lastPing = engineConn.lastPing;
+        connections.set(socket.id, conn);
+      }
+    }
+
+    // Handle heartbeats
+    const updateLastPing = () => {
+      const conn = connections.get(socket.id);
+      if (conn) {
+        conn.lastPing = new Date();
+        connections.set(socket.id, conn);
+        console.log('Heartbeat received:', {
+          socketId: socket.id,
+          engineId: engineId,
+          userId: socket.data.userId,
+          authenticated: conn.authenticated,
+          timestamp: new Date().toISOString()
+        });
+      }
+    };
+
+    // Update on both ping and connection events
+    const packetHandler = (packet: any) => {
+      if (packet.type === 'ping' || packet.type === 'pong') {
+        updateLastPing();
+      }
+    };
+    socket.conn.on('packet', packetHandler);
+
+    // Clean up listeners on disconnect
+    socket.on('disconnect', () => {
+      socket.conn.removeListener('packet', packetHandler);
+      const conn = connections.get(socket.id);
+      connections.delete(socket.id);
+      
+      console.log('Client disconnected:', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+        documentId: socket.data.documentId,
+        duration: conn ? Date.now() - conn.connectedAt.getTime() : 0,
+        remainingConnections: connections.size,
+        timestamp: new Date().toISOString()
+      });
+
+      // Notify other clients if the user was in a document
+      if (socket.data.documentId && socket.data.userId) {
+        socket.to(socket.data.documentId).emit('document:presence', {
+          type: 'presence',
+          userId: socket.data.userId,
+          documentId: socket.data.documentId,
+          data: { status: 'offline' }
+        });
+      }
+    });
   });
 
   // Monitor ping/pong to track active connections
@@ -325,8 +406,6 @@ export function setupWebSocket(server: HttpServer) {
     });
   });
 
-  const docNamespace = io.of('/document');
-
   // Authentication middleware with timeout
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     console.log('Document namespace connection attempt:', {
@@ -406,179 +485,6 @@ export function setupWebSocket(server: HttpServer) {
       console.error('Socket middleware error:', error);
       next(new Error('Authentication failed'));
     }
-  });
-
-  // Handle connections and disconnections in the document namespace
-  docNamespace.on('connection', (socket: DocumentSocket) => {
-    // Find the engine connection using the public method
-    const engineId = socket.conn.transport.sid;
-    const engineConn = Array.from(connections.values()).find(c => c.engineId === engineId);
-    
-    if (engineConn) {
-      // Update the namespace connection with engine connection info
-      const conn = connections.get(socket.id);
-      if (conn) {
-        conn.engineId = engineId;
-        conn.lastPing = engineConn.lastPing;
-        connections.set(socket.id, conn);
-      }
-    }
-
-    // Handle heartbeats
-    const updateLastPing = () => {
-      const conn = connections.get(socket.id);
-      if (conn) {
-        conn.lastPing = new Date();
-        connections.set(socket.id, conn);
-        console.log('Heartbeat received:', {
-          socketId: socket.id,
-          engineId: engineId,
-          userId: socket.data.userId,
-          authenticated: conn.authenticated,
-          timestamp: new Date().toISOString()
-        });
-      }
-    };
-
-    // Update on both ping and connection events
-    socket.conn.on('packet', (packet: any) => {
-      if (packet.type === 'ping' || packet.type === 'pong') {
-        updateLastPing();
-      }
-    });
-
-    // Initial heartbeat
-    updateLastPing();
-
-    console.log('Client connected to document namespace:', {
-      socketId: socket.id,
-      engineId: engineId,
-      userId: socket.data.userId,
-      transport: socket.conn?.transport?.name,
-      timestamp: new Date().toISOString()
-    });
-
-    // Handle document join
-    socket.on('document:join', async (documentId: string) => {
-      try {
-        if (!socket.data.userId) {
-          socket.emit('error', { message: 'Not authenticated' });
-          return;
-        }
-
-        // Update last ping on any activity
-        updateLastPing();
-
-        // Verify document access
-        const document = await db.document.findFirst({
-          where: {
-            id: documentId,
-            users: {
-              some: {
-                id: socket.data.userId
-              }
-            }
-          }
-        });
-
-        if (!document) {
-          socket.emit('error', { message: 'Document access denied' });
-          return;
-        }
-
-        // Leave previous document room if any
-        if (socket.data.documentId) {
-          socket.leave(socket.data.documentId);
-        }
-
-        // Join document room
-        socket.join(documentId);
-        socket.data.documentId = documentId;
-
-        // Update connection tracking
-        const conn = connections.get(socket.id);
-        if (conn) {
-          conn.documentId = documentId;
-          connections.set(socket.id, conn);
-        }
-
-        socket.emit('document:joined', {
-          documentId,
-          userId: socket.data.userId
-        });
-
-        // Notify other clients in the room
-        socket.to(documentId).emit('document:presence', {
-          type: 'presence',
-          userId: socket.data.userId,
-          documentId: documentId,
-          data: { status: 'online' }
-        });
-      } catch (error) {
-        console.error('Error joining document:', error);
-        socket.emit('error', { message: 'Failed to join document' });
-      }
-    });
-
-    // Handle document updates
-    socket.on('document:update', async (data: DocumentUpdate) => {
-      if (!socket.data.userId || !socket.data.documentId) {
-        socket.emit('error', { message: 'Not authenticated or not in a document' });
-        return;
-      }
-
-      try {
-        // Update document in database
-        await db.document.update({
-          where: { id: socket.data.documentId },
-          data: {
-            content: data.content as Prisma.InputJsonValue,
-            versions: {
-              create: {
-                content: data.content as Prisma.InputJsonValue,
-                user: { connect: { id: socket.data.userId } }
-              }
-            }
-          }
-        });
-
-        // Broadcast update to other clients
-        socket.to(socket.data.documentId).emit('document:update', {
-          type: 'update',
-          userId: socket.data.userId,
-          documentId: socket.data.documentId,
-          content: data.content
-        });
-      } catch (error) {
-        console.error('Document update error:', error);
-        socket.emit('error', { message: 'Failed to update document' });
-      }
-    });
-
-    // Handle disconnection
-    socket.on('disconnect', () => {
-      const conn = connections.get(socket.id);
-      connections.delete(socket.id);
-      
-      console.log('Client disconnected:', {
-        socketId: socket.id,
-        userId: socket.data.userId,
-        documentId: socket.data.documentId,
-        duration: conn ? Date.now() - conn.connectedAt.getTime() : 0,
-        remainingConnections: connections.size,
-        timestamp: new Date().toISOString()
-      });
-
-      // Notify other clients if the user was in a document
-      if (socket.data.documentId && socket.data.userId) {
-        socket.to(socket.data.documentId).emit('document:presence', {
-          type: 'presence',
-          userId: socket.data.userId,
-          documentId: socket.data.documentId,
-          data: { status: 'offline' }
-        });
-      }
-    });
   });
 
   // Add middleware for all namespaces
