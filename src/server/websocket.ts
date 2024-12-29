@@ -176,9 +176,11 @@ export function setupWebSocket(server: HttpServer) {
     allowRequest: (req: IncomingMessage, callback: (err: string | null | undefined, success: boolean) => void) => {
       callback(null, true); // Allow all requests through
     },
-    // Trust Railway's proxy
-    proxy: true,
-    rememberUpgrade: true,
+    // Handle proxies
+    connectionStateRecovery: {
+      maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
+      skipMiddlewares: true,
+    },
     perMessageDeflate: {
       threshold: 2048 // Only compress messages larger than 2KB
     },
