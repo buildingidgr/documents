@@ -5,7 +5,6 @@ import next from 'next';
 import { setupWebSocket } from './websocket';
 import { db } from './db';
 import { authenticateUser } from './auth';
-import { parse } from 'url';
 
 const dev = process.env.NODE_ENV !== 'production';
 const nextApp = next({ 
@@ -84,7 +83,21 @@ async function main() {
       }
     });
 
-    // Initialize WebSocket
+    // Handle WebSocket upgrade requests
+    server.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
+      const upgradeHeader = request.headers['upgrade'];
+      const path = request.url;
+
+      // Only handle WebSocket upgrades for /ws path
+      if (upgradeHeader !== 'websocket' || !path?.startsWith('/ws')) {
+        socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+        return;
+      }
+
+      console.log('WebSocket upgrade request received for path:', path);
+    });
+
+    // Initialize Socket.IO
     const io = setupWebSocket(server);
 
     // Add health check endpoint
@@ -92,21 +105,24 @@ async function main() {
       res.status(200).json({ status: 'ok' });
     });
 
+    // Handle WebSocket routes first
+    app.use('/ws', (req: Request, res: Response, next: NextFunction) => {
+      console.log('WebSocket request received:', req.path);
+      next();
+    });
+
     // Let Next.js handle API routes
-    app.all('/api/*', (req: Request, res: Response, next: NextFunction) => {
-      if (req.path === '/api/healthcheck') {
-        return next();
-      }
-      console.log('Handling API route:', req.path);
+    app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+      console.log('API request received:', req.path);
       return handle(req, res);
     });
 
     // Let Next.js handle all other routes
-    app.all('*', (req: Request, res: Response, next: NextFunction) => {
-      if (req.path === '/ws') {
-        return next();
+    app.all('*', (req: Request, res: Response) => {
+      if (!req.path.startsWith('/ws')) {
+        return handle(req, res);
       }
-      return handle(req, res);
+      next();
     });
 
     // Add error handlers
