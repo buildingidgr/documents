@@ -197,7 +197,14 @@ export function setupWebSocket(server: HttpServer) {
   // Monitor ping/pong to track active connections
   io.engine.on('packet', (packet: any, socket: EngineSocket) => {
     if (packet.type === 'ping' || packet.type === 'pong') {
-      const conn = connections.get(socket.id);
+      // Try to find connection by engine ID or socket ID
+      let conn = connections.get(socket.id);
+      
+      if (!conn) {
+        // Search for connection by engineId if not found by socket.id
+        conn = Array.from(connections.values()).find(c => c.engineId === socket.id);
+      }
+
       if (conn) {
         conn.lastPing = new Date();
         connections.set(socket.id, conn);
@@ -205,6 +212,7 @@ export function setupWebSocket(server: HttpServer) {
           socketId: socket.id,
           type: packet.type,
           authenticated: conn.authenticated,
+          userId: conn.userId,
           timestamp: new Date().toISOString()
         });
       }
@@ -216,17 +224,32 @@ export function setupWebSocket(server: HttpServer) {
     const now = Date.now();
     connections.forEach((conn, id) => {
       const lastActivity = conn.lastPing || conn.connectedAt;
-      // Increase stale timeout to 60 seconds
-      if (now - lastActivity.getTime() > 60000) { // 60 seconds
+      const inactiveTime = now - lastActivity.getTime();
+      
+      // Only remove if inactive for more than 60 seconds AND not authenticated
+      // OR inactive for more than 5 minutes even if authenticated
+      if ((!conn.authenticated && inactiveTime > 60000) || 
+          (inactiveTime > 300000)) {
         console.log('Removing stale connection:', {
           socketId: id,
           userId: conn.userId,
+          authenticated: conn.authenticated,
           lastPing: conn.lastPing?.toISOString(),
           connectedAt: conn.connectedAt.toISOString(),
-          inactiveFor: Math.floor((now - lastActivity.getTime()) / 1000) + 's',
+          inactiveFor: Math.floor(inactiveTime / 1000) + 's',
           timestamp: new Date().toISOString()
         });
         connections.delete(id);
+      } else {
+        // Log activity for active connections
+        console.log('Active connection status:', {
+          socketId: id,
+          userId: conn.userId,
+          authenticated: conn.authenticated,
+          lastPing: conn.lastPing?.toISOString(),
+          inactiveFor: Math.floor(inactiveTime / 1000) + 's',
+          timestamp: new Date().toISOString()
+        });
       }
     });
     
@@ -235,7 +258,14 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Connection stats after cleanup:', {
       ...stats,
       rawActiveConnections: io.engine.clientsCount,
-      namespaceConnections: docNamespace.sockets.size
+      namespaceConnections: docNamespace.sockets.size,
+      detailedConnections: Array.from(connections.entries()).map(([id, conn]) => ({
+        socketId: id,
+        userId: conn.userId,
+        authenticated: conn.authenticated,
+        lastPing: conn.lastPing?.toISOString(),
+        connectedAt: conn.connectedAt.toISOString()
+      }))
     });
   }, 30000); // Every 30 seconds
 
@@ -360,8 +390,21 @@ export function setupWebSocket(server: HttpServer) {
 
   // Handle connections and disconnections in the document namespace
   docNamespace.on('connection', (socket: DocumentSocket) => {
+    // Find the engine connection
+    const engineConn = Array.from(connections.values()).find(c => c.engineId === socket.conn.id);
+    if (engineConn) {
+      // Update the namespace connection with engine connection info
+      const conn = connections.get(socket.id);
+      if (conn) {
+        conn.engineId = socket.conn.id;
+        conn.lastPing = engineConn.lastPing;
+        connections.set(socket.id, conn);
+      }
+    }
+
     console.log('Client connected to document namespace:', {
       socketId: socket.id,
+      engineId: socket.conn.id,
       userId: socket.data.userId,
       transport: socket.conn?.transport?.name,
       timestamp: new Date().toISOString()
