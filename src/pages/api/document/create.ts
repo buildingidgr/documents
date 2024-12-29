@@ -70,17 +70,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           // Create initial version
           try {
             console.log('[Document Create] Creating version for document:', doc.id);
-            const version = await tx.version.create({
-              data: {
-                content: validatedInput.content as Prisma.InputJsonValue,
-                document: { connect: { id: doc.id } },
-                user: { connect: { id: user.id } }
-              }
-            });
-            console.log('[Document Create] Created version:', version.id);
+            
+            // Debug: Check if document exists
+            const docCheck = await tx.$executeRaw`
+              SELECT id FROM "Document" WHERE id = ${doc.id}
+            `;
+            console.log('[Document Create] Document check:', docCheck);
+
+            // Debug: Check if user exists
+            const userCheck = await tx.$executeRaw`
+              SELECT id FROM "User" WHERE id = ${user.id}
+            `;
+            console.log('[Document Create] User check:', userCheck);
+
+            // Create version with raw SQL for debugging
+            const versionId = await tx.$executeRaw`
+              INSERT INTO "Version" (id, content, "documentId", "userId", "createdAt")
+              VALUES (
+                gen_random_uuid(),
+                ${validatedInput.content as unknown as Prisma.JsonValue},
+                ${doc.id},
+                ${user.id},
+                NOW()
+              )
+              RETURNING id
+            `;
+            console.log('[Document Create] Created version with ID:', versionId);
+
           } catch (versionError) {
             console.error('[Document Create] Failed to create version:', 
-              versionError instanceof Error ? versionError.message : 'Unknown error'
+              versionError instanceof Error ? versionError.message : 'Unknown error',
+              '\nStack:', versionError instanceof Error ? versionError.stack : 'No stack trace'
             );
             throw versionError;
           }
