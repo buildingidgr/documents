@@ -243,10 +243,13 @@ export function setupWebSocket(server: HttpServer) {
       const lastActivity = conn.lastPing || conn.connectedAt;
       const inactiveTime = now - lastActivity.getTime();
       
-      // Only remove if inactive for more than 60 seconds AND not authenticated
-      // OR inactive for more than 5 minutes even if authenticated
+      // More lenient cleanup rules:
+      // - Unauthenticated: Remove after 60s of inactivity
+      // - Authenticated without ping: Remove after 5 minutes
+      // - Authenticated with recent ping: Keep alive
       if ((!conn.authenticated && inactiveTime > 60000) || 
-          (inactiveTime > 300000)) {
+          (conn.authenticated && !conn.lastPing && inactiveTime > 300000) ||
+          (conn.authenticated && conn.lastPing && inactiveTime > 600000)) {
         console.log('Removing stale connection:', {
           socketId: id,
           userId: conn.userId,
@@ -421,6 +424,32 @@ export function setupWebSocket(server: HttpServer) {
       }
     }
 
+    // Handle heartbeats
+    const updateLastPing = () => {
+      const conn = connections.get(socket.id);
+      if (conn) {
+        conn.lastPing = new Date();
+        connections.set(socket.id, conn);
+        console.log('Heartbeat received:', {
+          socketId: socket.id,
+          engineId: engineId,
+          userId: socket.data.userId,
+          authenticated: conn.authenticated,
+          timestamp: new Date().toISOString()
+        });
+      }
+    };
+
+    // Update on both ping and connection events
+    socket.conn.on('packet', (packet: any) => {
+      if (packet.type === 'ping' || packet.type === 'pong') {
+        updateLastPing();
+      }
+    });
+
+    // Initial heartbeat
+    updateLastPing();
+
     console.log('Client connected to document namespace:', {
       socketId: socket.id,
       engineId: engineId,
@@ -436,6 +465,9 @@ export function setupWebSocket(server: HttpServer) {
           socket.emit('error', { message: 'Not authenticated' });
           return;
         }
+
+        // Update last ping on any activity
+        updateLastPing();
 
         // Verify document access
         const document = await db.document.findFirst({
