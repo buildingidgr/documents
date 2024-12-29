@@ -58,21 +58,47 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
-    transports: ['websocket'],
-    pingInterval: 25000,
-    pingTimeout: 10000,
-    connectTimeout: 45000,
+    transports: ['websocket', 'polling'],
+    pingInterval: 10000,
+    pingTimeout: 5000,
+    connectTimeout: 30000,
     maxHttpBufferSize: 1e8,
     allowUpgrades: true,
     upgradeTimeout: 10000,
-    allowEIO3: true
+    allowEIO3: true,
+    perMessageDeflate: {
+      threshold: 2048
+    },
+    httpCompression: {
+      threshold: 2048
+    }
+  });
+
+  io.engine.on('connection_error', (err: Error) => {
+    console.error('Socket.IO connection error:', {
+      error: err.message,
+      stack: err.stack
+    });
   });
 
   const docNamespace = io.of('/document');
 
-  // Authentication middleware
+  docNamespace.on('connect', (socket: DocumentSocket) => {
+    console.log('New namespace connection:', {
+      id: socket.id,
+      transport: socket.conn?.transport?.name,
+      headers: socket.handshake.headers
+    });
+  });
+
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     try {
+      console.log('Socket authentication attempt:', {
+        id: socket.id,
+        headers: socket.handshake.headers,
+        auth: socket.handshake.auth
+      });
+
       const token = socket.handshake.auth.token || 
                     socket.handshake.headers.authorization?.split(' ')[1];
 
@@ -219,6 +245,19 @@ export function setupWebSocket(server: HttpServer) {
       }
     });
   });
+
+  setInterval(() => {
+    const sockets = docNamespace.sockets;
+    console.log('Active connections:', {
+      count: sockets.size,
+      sockets: Array.from(sockets.values()).map(s => ({
+        id: s.id,
+        userId: s.data.userId,
+        documentId: s.data.documentId,
+        transport: s.conn?.transport?.name
+      }))
+    });
+  }, 30000);
 
   return io;
 }
