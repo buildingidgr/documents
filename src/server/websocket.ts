@@ -4,13 +4,6 @@ import { instrument } from '@socket.io/admin-ui';
 import { authenticateUser } from './auth';
 import { db } from './db';
 import { Prisma } from '@prisma/client';
-import { parse as parseUrl } from 'url';
-import { parse as parseQs } from 'querystring';
-
-// Add Socket.IO request types
-interface AllowRequestCallback {
-  (err: string | null | undefined, success: boolean): void;
-}
 
 // Add Socket.IO engine types
 interface EngineSocket {
@@ -41,10 +34,6 @@ interface Transport {
   pingTimeout?: number;
   writable?: boolean;
   destroyed?: boolean;
-}
-
-interface EngineRequest extends IncomingMessage {
-  _query: Record<string, string>;
 }
 
 interface ServerToClientEvents {
@@ -123,8 +112,8 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type", "Accept"],
       credentials: true
     },
-    // Allow both polling and websocket for initial handshake
-    transports: ['polling', 'websocket'],
+    // Only allow WebSocket transport
+    transports: ['websocket'],
     // Connection settings
     pingInterval: 30000,
     pingTimeout: 25000,
@@ -142,29 +131,6 @@ export function setupWebSocket(server: HttpServer) {
     // Other options
     allowEIO3: true,
     cookie: false
-  });
-
-  // Handle upgrade requests manually to ensure proper typing
-  server.on('upgrade', (req: IncomingMessage, socket, head) => {
-    if (req.url?.startsWith('/ws')) {
-      // Parse query string and add it to the request
-      const parsedUrl = parseUrl(req.url);
-      const query = parseQs(parsedUrl.query || '');
-      
-      // Create an EngineRequest by extending the original request
-      const engineReq = req as EngineRequest;
-      engineReq._query = Object.fromEntries(
-        Object.entries(query)
-          .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
-          .map(([key, value]) => [
-            key,
-            Array.isArray(value) ? value[0] || '' : value || ''
-          ])
-      );
-
-      // Now handle the upgrade with proper typing
-      io.engine.handleUpgrade(engineReq, socket, head);
-    }
   });
 
   // Add connection stabilization
