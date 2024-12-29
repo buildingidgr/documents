@@ -1,12 +1,22 @@
-import { Server as HttpServer } from 'http';
+import { Server as HttpServer, IncomingMessage, ServerResponse } from 'http';
 import { Server, Socket } from 'socket.io';
-import { authenticateUser } from './auth';
 import { db } from './db';
+import { authenticateUser } from './auth';
 import { Prisma } from '@prisma/client';
 
 interface DocumentSocket extends Socket {
   userId?: string;
   documentId?: string;
+  handshake: Socket['handshake'];
+  conn: Socket['conn'];
+  nsp: Socket['nsp'];
+  id: string;
+  emit: Socket['emit'];
+  to: Socket['to'];
+  join: Socket['join'];
+  leave: Socket['leave'];
+  on: Socket['on'];
+  removeAllListeners: Socket['removeAllListeners'];
 }
 
 interface DocumentUpdate {
@@ -120,12 +130,28 @@ export function setupWebSocket(server: HttpServer) {
     connectTimeout: 10000,
     transports: ['websocket', 'polling'],
     allowUpgrades: true,
-    maxHttpBufferSize: 1e8
+    maxHttpBufferSize: 1e8,
+    // Railway proxy settings
+    allowRequest: (req, callback) => {
+      callback(null, true); // Allow all requests through
+    },
+    // Trust Railway's proxy
+    proxy: true,
+    rememberUpgrade: true,
+    perMessageDeflate: {
+      threshold: 2048 // Only compress messages larger than 2KB
+    },
+    cookie: {
+      name: 'io',
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax'
+    }
   });
 
   // Handle authentication at the engine level for all HTTP requests
-  io.engine.use((req, res, next) => {
-    const isHandshake = req._query.sid === undefined;
+  io.engine.use((req: IncomingMessage & { _query?: { sid?: string }; userId?: string }, res: ServerResponse, next: (err?: Error) => void) => {
+    const isHandshake = req._query?.sid === undefined;
     if (isHandshake) {
       // Only apply auth for handshake requests
       const token = req.headers.authorization?.split(' ')[1];
@@ -137,7 +163,7 @@ export function setupWebSocket(server: HttpServer) {
       authenticateUser(token)
         .then(userId => {
           if (userId) {
-            (req as any).userId = userId;
+            req.userId = userId;
           }
           next();
         })
