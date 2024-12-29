@@ -37,3 +37,6 @@ proxy_send_timeout = 300
 proxy_connect_timeout = 10
 max_connection_age = 600
 max_connection_age_grace = 60
+
+[env]
+DEBUG = "socket.io:*"

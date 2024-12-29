@@ -5,6 +5,17 @@ import { authenticateUser } from './auth';
 import { db } from './db';
 import { Prisma } from '@prisma/client';
 
+// Add Socket.IO engine types
+interface EngineSocket {
+  id: string;
+  transport?: {
+    name: string;
+  };
+  request?: {
+    headers: Record<string, string | string[] | undefined>;
+  };
+}
+
 // Add Socket.IO error types
 interface SocketError {
   code: string;
@@ -77,19 +88,42 @@ export function setupWebSocket(server: HttpServer) {
     maxHttpBufferSize: 1e8,
     allowUpgrades: true,
     upgradeTimeout: 10000,
-    allowEIO3: true,
-    logger: {
-      debug: true,
-      info: true,
-      error: true,
-      warn: true
-    }
+    allowEIO3: true
   });
 
-  // Initialize Socket.IO Admin UI
-  instrument(io, {
-    auth: false,
-    mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+  // Enable Socket.IO debug mode via environment variable
+  if (process.env.DEBUG) {
+    console.log('Socket.IO debug mode enabled');
+  }
+
+  // Add connection monitoring
+  io.engine.on('connection', (socket: EngineSocket) => {
+    console.log('New engine connection:', {
+      id: socket.id,
+      transport: socket.transport?.name,
+      headers: socket.request?.headers,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Add detailed error monitoring
+  io.engine.on('connection_error', (err: SocketError) => {
+    console.error('Engine connection error:', {
+      code: err.code,
+      message: err.message,
+      type: err.type,
+      req: err.req?.url,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  io.engine.on('headers', (headers: Record<string, string>, req: IncomingMessage) => {
+    console.log('Engine headers:', {
+      headers,
+      url: req.url,
+      method: req.method,
+      timestamp: new Date().toISOString()
+    });
   });
 
   const docNamespace = io.of('/document');
@@ -244,22 +278,10 @@ export function setupWebSocket(server: HttpServer) {
     });
   });
 
-  // Add engine debug events
-  io.engine.on('connection_error', (err: SocketError) => {
-    console.error('Engine connection error:', {
-      code: err.code,
-      message: err.message,
-      type: err.type,
-      req: err.req?.url
-    });
-  });
-
-  io.engine.on('headers', (headers: Record<string, string>, req: IncomingMessage) => {
-    console.log('Engine headers:', {
-      headers,
-      url: req.url,
-      method: req.method
-    });
+  // Initialize Socket.IO Admin UI
+  instrument(io, {
+    auth: false,
+    mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
   });
 
   return io;
