@@ -80,11 +80,14 @@ export function setupWebSocket(server: HttpServer) {
       });
       callback(null, true);
     },
-    cookie: false,
-    allowHeadersFromPayload: true
+    cookie: false
   });
 
   io.engine.on('initial_headers', (headers: any, req: any) => {
+    headers['Access-Control-Allow-Origin'] = '*';
+    headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
+    headers['Access-Control-Allow-Credentials'] = 'true';
+    
     console.log('Socket.IO initial headers:', {
       headers,
       url: req.url,
@@ -93,6 +96,10 @@ export function setupWebSocket(server: HttpServer) {
   });
 
   io.engine.on('headers', (headers: any, req: any) => {
+    headers['Access-Control-Allow-Origin'] = '*';
+    headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
+    headers['Access-Control-Allow-Credentials'] = 'true';
+    
     console.log('Socket.IO headers:', {
       headers,
       url: req.url,
