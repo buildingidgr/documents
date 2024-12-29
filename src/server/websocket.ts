@@ -170,7 +170,12 @@ export function setupWebSocket(server: HttpServer) {
     pingTimeout: 5000,
     connectTimeout: 45000,
     allowEIO3: true,
-    maxHttpBufferSize: 1e8
+    maxHttpBufferSize: 1e8,
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    randomizationFactor: 0.5
   });
 
   // Create a dedicated namespace for document collaboration
@@ -265,12 +270,11 @@ export function setupWebSocket(server: HttpServer) {
 
     // Add ping timeout handler
     socket.conn.on('ping timeout', () => {
-      console.log('Ping timeout:', {
+      console.log('Ping timeout detected:', {
         socketId: socket.id,
-        userId: socket.userId
+        userId: socket.userId,
+        transport: socket.conn?.transport?.name
       });
-      // Attempt to reconnect
-      socket.conn.connect();
     });
 
     // Handle document join
