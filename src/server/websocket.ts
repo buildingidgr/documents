@@ -115,22 +115,16 @@ export function setupWebSocket(server: HttpServer) {
       ],
       methods: ["GET", "POST", "OPTIONS"],
       allowedHeaders: ["Authorization", "Content-Type", "Accept"],
-      credentials: true,
-      preflightContinue: false,
-      optionsSuccessStatus: 204
+      credentials: true
     },
-    transports: ['websocket'],
+    transports: ['polling', 'websocket'],
     pingInterval: 25000,
     pingTimeout: 20000,
     connectTimeout: 45000,
     maxHttpBufferSize: 1e8,
-    allowUpgrades: false,
-    upgradeTimeout: 10000,
-    perMessageDeflate: {
-      threshold: 2048,
-      clientNoContextTakeover: true,
-      serverNoContextTakeover: true
-    },
+    allowUpgrades: true,
+    upgradeTimeout: 30000,
+    perMessageDeflate: false,
     allowEIO3: true,
     cookie: false
   });
@@ -177,7 +171,7 @@ export function setupWebSocket(server: HttpServer) {
 
     // Set a higher timeout for the initial connection
     if (rawSocket.conn) {
-      rawSocket.conn.setTimeout(30000);
+      rawSocket.conn.setTimeout(45000);
     }
 
     // Monitor connection state
@@ -186,10 +180,20 @@ export function setupWebSocket(server: HttpServer) {
       hasError: false,
       lastActivity: Date.now(),
       closeReason: null as string | null,
-      closeCode: null as number | null
+      closeCode: null as string | number | null,
+      upgradeAttempts: 0
     };
 
     // Track connection upgrade
+    rawSocket.on('upgrading', () => {
+      connectionState.upgradeAttempts++;
+      console.log('Socket upgrading:', {
+        socketId: rawSocket.id,
+        connectionState,
+        timestamp: new Date().toISOString()
+      });
+    });
+
     rawSocket.on('upgrade', () => {
       connectionState.isUpgraded = true;
       connectionState.lastActivity = Date.now();
@@ -198,6 +202,15 @@ export function setupWebSocket(server: HttpServer) {
         connectionState,
         timestamp: new Date().toISOString()
       });
+
+      // Re-enable compression after successful upgrade
+      if (rawSocket.transport?.socket) {
+        rawSocket.transport.socket.perMessageDeflate = {
+          threshold: 2048,
+          clientNoContextTakeover: true,
+          serverNoContextTakeover: true
+        };
+      }
     });
 
     // Track errors
@@ -213,7 +226,7 @@ export function setupWebSocket(server: HttpServer) {
     });
 
     // Monitor close with state
-    rawSocket.on('close', (code: number, reason: string) => {
+    rawSocket.on('close', (code: number | string, reason: string) => {
       connectionState.closeCode = code;
       connectionState.closeReason = reason;
       console.log('Socket closed:', {
@@ -222,6 +235,8 @@ export function setupWebSocket(server: HttpServer) {
         reason,
         connectionState,
         timeSinceLastActivity: Date.now() - connectionState.lastActivity,
+        wasUpgraded: connectionState.isUpgraded,
+        upgradeAttempts: connectionState.upgradeAttempts,
         timestamp: new Date().toISOString()
       });
     });
