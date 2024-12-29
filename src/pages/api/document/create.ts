@@ -69,47 +69,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               content: validatedInput.content as Prisma.InputJsonValue,
               users: {
                 connect: { id: userId }
-              }
-            }
-          });
-
-          console.log('[Document Create] Created document:', doc.id);
-
-          // Create initial version with explicit ID and error handling
-          try {
-            console.log('[DEBUG] Creating version for document:', doc.id);
-            const version = await tx.version.create({
-              data: {
-                id: `ver_${doc.id}`,
-                content: validatedInput.content as Prisma.InputJsonValue,
-                documentId: doc.id,
-                userId: userId
-              }
-            });
-
-            if (!version) {
-              throw new Error(`Failed to create version for document ${doc.id}`);
-            }
-
-            console.log('[DEBUG] Version created:', version.id);
-
-          } catch (versionError) {
-            console.error('[ERROR] Failed to create version:', {
-              documentId: doc.id,
-              error: versionError instanceof Error ? versionError.message : 'Unknown error',
-              stack: versionError instanceof Error ? versionError.stack : undefined,
-              timestamp: new Date().toISOString()
-            });
-            throw versionError;
-          }
-
-          // Fetch complete document with associations
-          const fullDoc = await tx.document.findFirstOrThrow({
-            where: { 
-              id: doc.id,
-              users: {
-                some: {
-                  id: userId
+              },
+              versions: {
+                create: {
+                  content: validatedInput.content as Prisma.InputJsonValue,
+                  user: { connect: { id: userId } }
                 }
               }
             },
@@ -132,21 +96,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                       name: true
                     }
                   }
-                },
-                orderBy: {
-                  createdAt: 'desc'
-                },
-                take: 1
+                }
               }
             }
           });
 
-          // Verify version was created
-          if (!fullDoc.versions || fullDoc.versions.length === 0) {
-            throw new Error('Version was not created');
-          }
+          console.log('[Document Create] Created document:', doc.id);
 
-          return fullDoc;
+          return doc;
         },
         {
           maxWait: 5000,
@@ -162,7 +119,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
       return res.status(200).json(result);
-    } catch (dbError) {
+    } catch (error: unknown) {
+      const dbError = error;
       if (dbError instanceof Prisma.PrismaClientKnownRequestError) {
         // Handle specific Prisma errors
         switch (dbError.code) {
@@ -191,7 +149,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
       }
 
-      throw dbError;
+      if (dbError instanceof Error) {
+        console.error('[Document Create] Unexpected error:', dbError.message);
+        return res.status(500).json({ error: dbError.message });
+      }
+
+      return res.status(500).json({ error: 'Unknown database error' });
     }
   } catch (err: unknown) {
     console.error('Error creating document:', err);
