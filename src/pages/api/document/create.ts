@@ -53,24 +53,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             },
           });
 
-          // Create document with associations
+          // Create document with user association
           const doc = await tx.document.create({
             data: {
               title: validatedInput.title,
               content: validatedInput.content as Prisma.InputJsonValue,
               users: {
                 connect: { id: user.id }
-              },
-              versions: {
-                create: {
-                  content: validatedInput.content as Prisma.InputJsonValue,
-                  user: { connect: { id: user.id } }
-                }
               }
             }
           });
 
-          // Fetch with associations
+          // Create initial version
+          const version = await tx.version.create({
+            data: {
+              content: validatedInput.content as Prisma.InputJsonValue,
+              document: { connect: { id: doc.id } },
+              user: { connect: { id: user.id } }
+            }
+          });
+
+          // Fetch complete document with associations
           const fullDoc = await tx.document.findFirstOrThrow({
             where: { 
               id: doc.id,
