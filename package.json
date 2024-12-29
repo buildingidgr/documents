@@ -40,7 +40,6 @@
     "@types/react": "^18.2.46",
     "@types/react-dom": "^18.2.18",
     "@types/socket.io": "^3.0.1",
-    "@types/socket.io-admin-ui": "^0.2.3",
     "@types/source-map-support": "^0.5.10",
     "@types/ws": "^8.5.13",
     "eslint": "^8.56.0",
