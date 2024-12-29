@@ -117,61 +117,27 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type", "Accept"],
       credentials: true
     },
-    transports: ['polling', 'websocket'],
-    pingInterval: 25000,
-    pingTimeout: 20000,
-    connectTimeout: 45000,
+    // Start with websocket only, no transport upgrade
+    transports: ['websocket'],
+    // Increase timeouts
+    pingInterval: 30000,
+    pingTimeout: 25000,
+    connectTimeout: 60000,
     maxHttpBufferSize: 1e8,
-    allowUpgrades: true,
-    upgradeTimeout: 30000,
+    // Disable upgrades since we're using websocket only
+    allowUpgrades: false,
+    // Disable compression initially
     perMessageDeflate: false,
+    // Other options
     allowEIO3: true,
     cookie: false
   });
 
-  // Add engine-level error and close monitoring
-  io.engine.on('connection_error', (err: SocketError) => {
-    console.error('Engine connection error:', {
-      code: err.code,
-      message: err.message,
-      type: err.type,
-      req: err.req?.url,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // Monitor engine-level close events
-  io.engine.on('close', (socket: EngineSocket) => {
-    console.log('Engine socket closed:', {
-      socketId: socket.id,
-      transport: socket.transport?.name,
-      headers: socket.request?.headers,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // Monitor initial connection attempts
-  io.engine.on('initial_headers', (headers: any, req: IncomingMessage) => {
-    console.log('Initial headers:', {
-      url: req.url,
-      method: req.method,
-      headers: req.headers,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // Monitor raw WebSocket events at the engine level
+  // Add connection stabilization
   io.engine.on('connection', (rawSocket: any) => {
-    console.log('Engine connection established:', {
-      socketId: rawSocket.id,
-      transport: rawSocket.transport?.name,
-      headers: rawSocket.request?.headers,
-      timestamp: new Date().toISOString()
-    });
-
     // Set a higher timeout for the initial connection
     if (rawSocket.conn) {
-      rawSocket.conn.setTimeout(45000);
+      rawSocket.conn.setTimeout(60000);
     }
 
     // Monitor connection state
@@ -181,51 +147,34 @@ export function setupWebSocket(server: HttpServer) {
       lastActivity: Date.now(),
       closeReason: null as string | null,
       closeCode: null as string | number | null,
-      upgradeAttempts: 0
+      upgradeAttempts: 0,
+      authenticated: false
     };
 
-    // Track connection upgrade
-    rawSocket.on('upgrading', () => {
-      connectionState.upgradeAttempts++;
-      console.log('Socket upgrading:', {
-        socketId: rawSocket.id,
-        connectionState,
-        timestamp: new Date().toISOString()
-      });
+    // Track initial connection
+    console.log('Initial connection:', {
+      socketId: rawSocket.id,
+      transport: rawSocket.transport?.name,
+      headers: rawSocket.request?.headers,
+      state: connectionState,
+      timestamp: new Date().toISOString()
     });
 
-    rawSocket.on('upgrade', () => {
-      connectionState.isUpgraded = true;
-      connectionState.lastActivity = Date.now();
-      console.log('Socket upgraded:', {
-        socketId: rawSocket.id,
-        connectionState,
-        timestamp: new Date().toISOString()
-      });
-
-      // Re-enable compression after successful upgrade
-      if (rawSocket.transport?.socket) {
-        rawSocket.transport.socket.perMessageDeflate = {
-          threshold: 2048,
-          clientNoContextTakeover: true,
-          serverNoContextTakeover: true
-        };
-      }
-    });
-
-    // Track errors
+    // Track errors with more detail
     rawSocket.on('error', (error: Error) => {
       connectionState.hasError = true;
       console.error('Socket error:', {
         socketId: rawSocket.id,
         error: error.message,
         stack: error.stack,
-        connectionState,
+        state: connectionState,
+        transport: rawSocket.transport?.name,
+        headers: rawSocket.request?.headers,
         timestamp: new Date().toISOString()
       });
     });
 
-    // Monitor close with state
+    // Monitor close with more detail
     rawSocket.on('close', (code: number | string, reason: string) => {
       connectionState.closeCode = code;
       connectionState.closeReason = reason;
@@ -233,25 +182,27 @@ export function setupWebSocket(server: HttpServer) {
         socketId: rawSocket.id,
         code,
         reason,
-        connectionState,
+        state: connectionState,
         timeSinceLastActivity: Date.now() - connectionState.lastActivity,
         wasUpgraded: connectionState.isUpgraded,
-        upgradeAttempts: connectionState.upgradeAttempts,
+        wasAuthenticated: connectionState.authenticated,
+        transport: rawSocket.transport?.name,
+        headers: rawSocket.request?.headers,
         timestamp: new Date().toISOString()
       });
     });
 
-    // Monitor packets for activity
-    rawSocket.on('packet', (packet: any) => {
+    // Track all packets for debugging
+    rawSocket.on('packet', (packet: any, next: () => void) => {
       connectionState.lastActivity = Date.now();
-      if (packet.type === 'ping' || packet.type === 'pong') {
-        console.log('Heartbeat packet:', {
-          socketId: rawSocket.id,
-          type: packet.type,
-          connectionState,
-          timestamp: new Date().toISOString()
-        });
-      }
+      console.log('Packet received:', {
+        socketId: rawSocket.id,
+        type: packet.type,
+        data: packet.data,
+        state: connectionState,
+        timestamp: new Date().toISOString()
+      });
+      next();
     });
   });
 
