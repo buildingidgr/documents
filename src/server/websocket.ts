@@ -170,7 +170,30 @@ export function setupWebSocket(server: HttpServer) {
     // Handle initial authentication
     const handleAuthentication = async (token: string) => {
       try {
+        console.log('Starting engine-level authentication:', {
+          socketId: rawSocket.id,
+          tokenLength: token.length,
+          tokenPrefix: token.substring(0, 20) + '...',
+          timestamp: new Date().toISOString()
+        });
+
+        // Check if token is in correct format
+        if (!token.includes('.') || token.split('.').length !== 3) {
+          console.error('Invalid token format:', {
+            socketId: rawSocket.id,
+            tokenLength: token.length,
+            timestamp: new Date().toISOString()
+          });
+          return false;
+        }
+
         const userId = await authenticateUser(token);
+        console.log('Authentication response:', {
+          socketId: rawSocket.id,
+          hasUserId: !!userId,
+          timestamp: new Date().toISOString()
+        });
+
         if (userId) {
           connectionState.authenticated = true;
           connections.set(rawSocket.id, {
@@ -187,13 +210,64 @@ export function setupWebSocket(server: HttpServer) {
             timestamp: new Date().toISOString()
           });
           return true;
+        } else {
+          console.error('Authentication failed - no userId returned:', {
+            socketId: rawSocket.id,
+            timestamp: new Date().toISOString()
+          });
+          return false;
         }
       } catch (error) {
-        console.error('Engine-level authentication failed:', {
+        console.error('Engine-level authentication error:', {
           socketId: rawSocket.id,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: error instanceof Error ? {
+            message: error.message,
+            name: error.name,
+            stack: error.stack,
+            cause: error.cause
+          } : 'Unknown error',
           timestamp: new Date().toISOString()
         });
+
+        // Don't fail on first attempt if it's a temporary error
+        if (error instanceof Error && 
+            (error.message.includes('ECONNREFUSED') || 
+             error.message.includes('ETIMEDOUT') || 
+             error.message.includes('ECONNRESET'))) {
+          console.log('Temporary error during authentication, will retry:', {
+            socketId: rawSocket.id,
+            error: error.message,
+            timestamp: new Date().toISOString()
+          });
+          // Wait a bit and retry once
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          try {
+            const userId = await authenticateUser(token);
+            if (userId) {
+              connectionState.authenticated = true;
+              connections.set(rawSocket.id, {
+                userId,
+                connectedAt: new Date(),
+                transport: rawSocket.transport?.name || 'unknown',
+                namespaces: new Set(['/document']),
+                engineId: rawSocket.id,
+                authenticated: true
+              });
+              console.log('Engine-level authentication successful on retry:', {
+                socketId: rawSocket.id,
+                userId,
+                timestamp: new Date().toISOString()
+              });
+              return true;
+            }
+          } catch (retryError) {
+            console.error('Authentication retry failed:', {
+              socketId: rawSocket.id,
+              error: retryError instanceof Error ? retryError.message : 'Unknown error',
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
       }
       return false;
     };
@@ -255,7 +329,7 @@ export function setupWebSocket(server: HttpServer) {
             socketId: rawSocket.id,
             type: packet.type,
             messageType: packet.data.charAt(0),
-            data,
+            data: data.token ? { ...data, token: data.token.substring(0, 20) + '...' } : data,
             state: connectionState,
             timestamp: new Date().toISOString()
           });
@@ -266,12 +340,18 @@ export function setupWebSocket(server: HttpServer) {
             console.log('Processing authentication token:', {
               socketId: rawSocket.id,
               state: connectionState,
+              tokenLength: data.token.length,
+              tokenPrefix: data.token.substring(0, 20) + '...',
               timestamp: new Date().toISOString()
             });
 
             const success = await handleAuthentication(data.token);
             if (!success) {
-              // Force close the connection if authentication fails
+              console.log('Closing connection due to authentication failure:', {
+                socketId: rawSocket.id,
+                state: connectionState,
+                timestamp: new Date().toISOString()
+              });
               rawSocket.close();
             }
           }
