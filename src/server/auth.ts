@@ -59,12 +59,20 @@ export async function authenticateUser(token?: string): Promise<string> {
     console.log('Validating token:', token.substring(0, 20) + '...');
     
     // Remove 'Bearer ' prefix if present
-    const cleanToken = token.replace('Bearer ', '');
+    const cleanToken = token.replace(/^Bearer\s+/i, '');
     
     const authServiceUrl = process.env.AUTH_SERVICE_URL;
     if (!authServiceUrl) {
       throw new Error('AUTH_SERVICE_URL is not set');
     }
+
+    // Add detailed request logging
+    console.log('Auth request details:', {
+      url: `${authServiceUrl}/v1/token/validate`,
+      token: cleanToken.substring(0, 20) + '...',
+      tokenLength: cleanToken.length,
+      timestamp: new Date().toISOString()
+    });
 
     const response = await fetch(`${authServiceUrl}/v1/token/validate`, {
       method: 'POST',
@@ -76,15 +84,34 @@ export async function authenticateUser(token?: string): Promise<string> {
       body: JSON.stringify({ token: cleanToken }),
     });
 
+    // Add detailed response logging
+    console.log('Auth service response:', {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries()),
+      timestamp: new Date().toISOString()
+    });
+
     if (!response.ok) {
+      const errorData = await response.text();
+      console.error('Token validation failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorData,
+        timestamp: new Date().toISOString()
+      });
       throw new TRPCError({
         code: 'UNAUTHORIZED',
-        message: 'Token validation failed',
+        message: `Token validation failed: ${response.statusText}`,
       });
     }
 
     const data = await response.json();
-    console.log('Token validation response:', data);
+    console.log('Token validation response:', {
+      isValid: data.isValid,
+      hasUserId: !!data.userId,
+      timestamp: new Date().toISOString()
+    });
 
     if (!data.isValid || !data.userId) {
       throw new TRPCError({
@@ -95,7 +122,15 @@ export async function authenticateUser(token?: string): Promise<string> {
 
     return data.userId;
   } catch (error) {
-    console.error('Token validation error:', error);
+    console.error('Token validation error:', {
+      error: error instanceof Error ? {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        cause: error.cause
+      } : error,
+      timestamp: new Date().toISOString()
+    });
     if (error instanceof TRPCError) {
       throw error;
     }
