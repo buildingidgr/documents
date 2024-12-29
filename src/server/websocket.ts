@@ -108,8 +108,7 @@ export function setupWebSocket(server: HttpServer) {
         'https://www.websocketking.com',
         'https://postman.com',
         'https://www.postman.com',
-        'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko',
-        true  // Allow all origins through proxy
+        'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
       ],
       methods: ['GET', 'POST'],
       credentials: true,
@@ -121,31 +120,39 @@ export function setupWebSocket(server: HttpServer) {
     connectTimeout: 10000,
     transports: ['websocket', 'polling'],
     allowUpgrades: true,
-    maxHttpBufferSize: 1e8,
-    perMessageDeflate: false,
-    httpCompression: false,
-    allowRequest: (req, callback) => {
-      callback(null, true);
-    }
+    maxHttpBufferSize: 1e8
   });
 
-  // Handle upgrade errors
-  server.on('upgrade', (req, socket, head) => {
-    console.log('Upgrade request received:', {
-      path: req.url,
-      headers: req.headers
-    });
+  // Handle authentication at the engine level for all HTTP requests
+  io.engine.use((req, res, next) => {
+    const isHandshake = req._query.sid === undefined;
+    if (isHandshake) {
+      // Only apply auth for handshake requests
+      const token = req.headers.authorization?.split(' ')[1];
+      if (!token) {
+        next();
+        return;
+      }
+
+      authenticateUser(token)
+        .then(userId => {
+          if (userId) {
+            (req as any).userId = userId;
+          }
+          next();
+        })
+        .catch(err => {
+          console.error('Auth error:', err);
+          next();
+        });
+    } else {
+      next();
+    }
   });
 
   // Add error handling for the server
   io.engine.on('connection_error', (err: Error) => {
     console.error('Connection error:', err);
-  });
-
-  io.engine.on('initial_headers', (headers: any, req: any) => {
-    headers['Access-Control-Allow-Origin'] = req.headers.origin || '*';
-    headers['Access-Control-Allow-Credentials'] = 'true';
-    console.log('Initial headers:', headers);
   });
 
   // Add connection event logging
