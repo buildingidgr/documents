@@ -108,7 +108,8 @@ export function setupWebSocket(server: HttpServer) {
         'https://www.websocketking.com',
         'https://postman.com',
         'https://www.postman.com',
-        'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
+        'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko',
+        true  // Allow all origins through proxy
       ],
       methods: ['GET', 'POST'],
       credentials: true,
@@ -123,10 +124,6 @@ export function setupWebSocket(server: HttpServer) {
     maxHttpBufferSize: 1e8,
     perMessageDeflate: false,
     httpCompression: false,
-    cors: {
-      credentials: true,
-      origin: true
-    },
     allowRequest: (req, callback) => {
       callback(null, true);
     }
