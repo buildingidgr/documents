@@ -67,6 +67,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   user: { connect: { id: user.id } }
                 }
               }
+            }
+          });
+
+          // Fetch with associations
+          const fullDoc = await tx.document.findFirstOrThrow({
+            where: { 
+              id: doc.id,
+              users: {
+                some: {
+                  id: user.id
+                }
+              }
             },
             include: {
               users: {
@@ -92,12 +104,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           });
 
-          // Verify associations
-          if (!doc.users.some(u => u.id === user.id)) {
-            throw new Error('User association not created');
-          }
-
-          return doc;
+          return fullDoc;
         },
         {
           maxWait: 5000, // 5s max wait time
