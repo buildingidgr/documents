@@ -291,13 +291,18 @@ export function setupWebSocket(server: HttpServer) {
     // Handle document join
     socket.on('document:join', async (documentId: string) => {
       try {
+        if (!socket.userId) {
+          socket.emit('error', { message: 'Not authenticated' });
+          return;
+        }
+
         // Verify document access
         const document = await db.document.findFirst({
           where: {
             id: documentId,
             users: {
               some: {
-                id: socket.userId!
+                id: socket.userId
               }
             }
           }
