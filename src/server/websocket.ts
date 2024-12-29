@@ -130,12 +130,12 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  // Handle WebSocket upgrades separately
-  server.on('upgrade', (req: IncomingMessage, socket: any, head: Buffer) => {
-    if (req.url?.startsWith('/ws')) {
-      // Handle WebSocket upgrades separately from HTTP
-      io.engine.handleUpgrade(req, socket, head);
-    }
+  // Let Socket.IO handle its own upgrades
+  io.attach(server, {
+    upgradeTimeout: 10000,
+    pingInterval: 25000,
+    pingTimeout: 20000,
+    transports: ['websocket']
   });
 
   // Create document namespace with authentication requirement
