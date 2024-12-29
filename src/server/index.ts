@@ -118,7 +118,7 @@ async function main() {
     });
 
     // Let Next.js handle all other routes
-    app.all('*', (req: Request, res: Response) => {
+    app.all('*', (req: Request, res: Response, next: NextFunction) => {
       if (!req.path.startsWith('/ws')) {
         return handle(req, res);
       }
