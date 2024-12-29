@@ -97,7 +97,8 @@ async function main() {
       if (!req.path.startsWith('/ws')) {
         return handle(req, res);
       }
-      next();
+      // For WebSocket paths, just end the response
+      res.end();
     });
 
     // Add error handlers
