@@ -67,6 +67,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
           // Create initial version with explicit ID and error handling
           try {
+            console.log('[DEBUG] Attempting to create version for document:', {
+              documentId: doc.id,
+              userId: userId,
+              timestamp: new Date().toISOString()
+            });
+
             const version = await tx.version.create({
               data: {
                 id: `ver_${doc.id}`,
@@ -77,27 +83,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             });
 
             if (!version) {
+              console.error('[ERROR] Version creation returned null:', {
+                documentId: doc.id,
+                userId: userId,
+                timestamp: new Date().toISOString()
+              });
               throw new Error(`Failed to create version for document ${doc.id}`);
             }
 
-            // Log to stdout for Railway
-            process.stdout.write(JSON.stringify({
-              level: 'info',
-              message: 'Version created successfully',
+            console.log('[INFO] Version created successfully:', {
               documentId: doc.id,
               versionId: version.id,
-              userId: userId
-            }) + '\n');
+              userId: userId,
+              timestamp: new Date().toISOString()
+            });
 
           } catch (versionError) {
-            // Log to stderr for Railway
-            process.stderr.write(JSON.stringify({
-              level: 'error',
-              message: 'Failed to create version',
+            console.error('[ERROR] Failed to create version:', {
               documentId: doc.id,
               error: versionError instanceof Error ? versionError.message : 'Unknown error',
-              stack: versionError instanceof Error ? versionError.stack : undefined
-            }) + '\n');
+              stack: versionError instanceof Error ? versionError.stack : undefined,
+              timestamp: new Date().toISOString()
+            });
             throw versionError;
           }
 
