@@ -14,6 +14,7 @@ interface EngineSocket {
   request?: {
     headers: Record<string, string | string[] | undefined>;
   };
+  on(event: string, listener: (...args: any[]) => void): void;
 }
 
 // Add Socket.IO error types
@@ -68,7 +69,8 @@ export function setupWebSocket(server: HttpServer) {
     connectedAt: Date;
     lastPing?: Date;
     transport: string;
-    namespaces: Set<string>;  // Track which namespaces this connection is in
+    namespaces: Set<string>;
+    authenticated: boolean;
   }>();
 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
@@ -92,8 +94,8 @@ export function setupWebSocket(server: HttpServer) {
       credentials: true
     },
     transports: ['websocket', 'polling'],
-    pingInterval: 15000,
-    pingTimeout: 10000,
+    pingInterval: 10000,        // More frequent ping
+    pingTimeout: 5000,         // Shorter timeout
     connectTimeout: 45000,
     maxHttpBufferSize: 1e8,
     allowUpgrades: true,
@@ -109,82 +111,90 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  // Add connection monitoring
+  // Add connection monitoring with enhanced error handling
   io.engine.on('connection', (socket: EngineSocket) => {
-    const connInfo = {
-      id: socket.id,
-      transport: socket.transport?.name,
-      headers: socket.request?.headers,
-      timestamp: new Date().toISOString(),
-      origin: socket.request?.headers.origin,
-      forwardedFor: socket.request?.headers['x-forwarded-for'],
-      forwardedProto: socket.request?.headers['x-forwarded-proto']
-    };
-    
-    console.log('New engine connection:', connInfo);
-    
-    // Only add to connections if it doesn't exist
-    if (!connections.has(socket.id)) {
+    try {
+      const connInfo = {
+        id: socket.id,
+        transport: socket.transport?.name,
+        headers: socket.request?.headers,
+        timestamp: new Date().toISOString(),
+        origin: socket.request?.headers.origin,
+        forwardedFor: socket.request?.headers['x-forwarded-for'],
+        forwardedProto: socket.request?.headers['x-forwarded-proto']
+      };
+      
+      console.log('New engine connection:', connInfo);
+      
+      // Initialize connection state
       connections.set(socket.id, {
         connectedAt: new Date(),
         transport: socket.transport?.name || 'unknown',
-        namespaces: new Set()
+        namespaces: new Set(),
+        authenticated: false,
+        lastPing: new Date()  // Initialize last ping
       });
 
       // Log accurate connection stats
       const stats = getConnectionStats();
       console.log('Connection stats:', stats);
+
+      // Set up ping handler for this socket
+      socket.on('ping', () => {
+        const conn = connections.get(socket.id);
+        if (conn) {
+          conn.lastPing = new Date();
+          connections.set(socket.id, conn);
+          console.log('Ping received:', {
+            socketId: socket.id,
+            timestamp: new Date().toISOString()
+          });
+        }
+      });
+
+      // Handle socket errors
+      socket.on('error', (error: Error) => {
+        console.error('Socket error:', {
+          socketId: socket.id,
+          error: error.message,
+          stack: error.stack,
+          timestamp: new Date().toISOString()
+        });
+      });
+
+    } catch (error) {
+      console.error('Error in connection handler:', error);
     }
   });
 
-  // Helper function to get accurate connection stats
-  function getConnectionStats() {
-    const uniqueConnections = new Set(Array.from(connections.values())
-      .filter(conn => conn.lastPing 
-        ? (Date.now() - conn.lastPing.getTime() < 30000) 
-        : (Date.now() - conn.connectedAt.getTime() < 30000))
-    );
-
-    return {
-      total: uniqueConnections.size,
-      authenticated: Array.from(uniqueConnections).filter(c => c.userId).length,
-      byTransport: {
-        websocket: Array.from(uniqueConnections).filter(c => c.transport === 'websocket').length,
-        polling: Array.from(uniqueConnections).filter(c => c.transport === 'polling').length
-      },
-      byNamespace: {
-        document: Array.from(uniqueConnections).filter(c => c.namespaces.has('/document')).length
-      },
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  // Monitor ping/pong to track active connections
+  // Monitor all packet types for debugging
   io.engine.on('packet', (packet: any, socket: EngineSocket) => {
+    console.log('Packet received:', {
+      socketId: socket.id,
+      type: packet.type,
+      timestamp: new Date().toISOString()
+    });
+
     if (packet.type === 'ping' || packet.type === 'pong') {
       const conn = connections.get(socket.id);
       if (conn) {
         conn.lastPing = new Date();
         connections.set(socket.id, conn);
-        console.log('Ping/Pong received:', {
-          socketId: socket.id,
-          type: packet.type,
-          timestamp: new Date().toISOString()
-        });
       }
     }
   });
 
-  // Clean up stale connections periodically
+  // Clean up stale connections with more lenient timeout
   setInterval(() => {
     const now = Date.now();
     connections.forEach((conn, id) => {
       const lastActivity = conn.lastPing || conn.connectedAt;
-      // Increase stale timeout to 60 seconds
-      if (now - lastActivity.getTime() > 60000) { // 60 seconds
+      // More lenient timeout (2 minutes)
+      if (now - lastActivity.getTime() > 120000) {
         console.log('Removing stale connection:', {
           socketId: id,
           userId: conn.userId,
+          authenticated: conn.authenticated,
           lastPing: conn.lastPing?.toISOString(),
           connectedAt: conn.connectedAt.toISOString(),
           inactiveFor: Math.floor((now - lastActivity.getTime()) / 1000) + 's',
@@ -194,14 +204,16 @@ export function setupWebSocket(server: HttpServer) {
       }
     });
     
-    // Log current stats after cleanup
+    // Log detailed connection stats
     const stats = getConnectionStats();
     console.log('Connection stats after cleanup:', {
       ...stats,
       rawActiveConnections: io.engine.clientsCount,
-      namespaceConnections: docNamespace.sockets.size
+      namespaceConnections: docNamespace.sockets.size,
+      engineState: io.engine.state,
+      timestamp: new Date().toISOString()
     });
-  }, 30000); // Every 30 seconds
+  }, 60000); // Check every minute
 
   // Add connection event to track namespace connections
   io.on('connection', (socket: Socket) => {
@@ -456,6 +468,28 @@ export function setupWebSocket(server: HttpServer) {
       }
     });
   });
+
+  // Helper function to get accurate connection stats
+  function getConnectionStats() {
+    const uniqueConnections = new Set(Array.from(connections.values())
+      .filter(conn => conn.lastPing 
+        ? (Date.now() - conn.lastPing.getTime() < 30000) 
+        : (Date.now() - conn.connectedAt.getTime() < 30000))
+    );
+
+    return {
+      total: uniqueConnections.size,
+      authenticated: Array.from(uniqueConnections).filter(c => c.authenticated).length,
+      byTransport: {
+        websocket: Array.from(uniqueConnections).filter(c => c.transport === 'websocket').length,
+        polling: Array.from(uniqueConnections).filter(c => c.transport === 'polling').length
+      },
+      byNamespace: {
+        document: Array.from(uniqueConnections).filter(c => c.namespaces.has('/document')).length
+      },
+      timestamp: new Date().toISOString()
+    };
+  }
 
   return io;
 }
