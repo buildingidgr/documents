@@ -5,6 +5,16 @@ import { authenticateUser } from './auth';
 import { db } from './db';
 import { Prisma } from '@prisma/client';
 
+// Add Socket.IO error types
+interface SocketError {
+  code: string;
+  message: string;
+  type: string;
+  req?: {
+    url?: string;
+  };
+}
+
 interface ServerToClientEvents {
   'error': (data: { message: string }) => void;
   'document:joined': (data: { documentId: string; userId: string }) => void;
@@ -60,14 +70,20 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ["Authorization", "Content-Type"],
       credentials: true
     },
-    transports: ['websocket'],
+    transports: ['websocket', 'polling'],
     pingInterval: 25000,
-    pingTimeout: 10000,
+    pingTimeout: 20000,
     connectTimeout: 45000,
     maxHttpBufferSize: 1e8,
     allowUpgrades: true,
     upgradeTimeout: 10000,
-    allowEIO3: true
+    allowEIO3: true,
+    logger: {
+      debug: true,
+      info: true,
+      error: true,
+      warn: true
+    }
   });
 
   // Initialize Socket.IO Admin UI
@@ -225,6 +241,24 @@ export function setupWebSocket(server: HttpServer) {
           data: { status: 'offline' }
         });
       }
+    });
+  });
+
+  // Add engine debug events
+  io.engine.on('connection_error', (err: SocketError) => {
+    console.error('Engine connection error:', {
+      code: err.code,
+      message: err.message,
+      type: err.type,
+      req: err.req?.url
+    });
+  });
+
+  io.engine.on('headers', (headers: Record<string, string>, req: IncomingMessage) => {
+    console.log('Engine headers:', {
+      headers,
+      url: req.url,
+      method: req.method
     });
   });
 

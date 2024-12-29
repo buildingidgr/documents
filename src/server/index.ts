@@ -7,6 +7,10 @@ import { authenticateUser } from './auth';
 import { IncomingMessage } from 'http';
 import { Socket } from 'net';
 
+// Add connection tracking
+let activeConnections = 0;
+const MAX_CONNECTIONS = 1000; // Adjust based on your needs
+
 // Add type for the extended Request
 declare global {
   namespace Express {
@@ -36,15 +40,34 @@ async function main() {
     // Add CORS middleware first
     app.use((req: Request, res: Response, next: NextFunction) => {
       // Skip CORS for WebSocket connections
-      if (req.headers.upgrade === 'websocket') {
+      if (req.headers.upgrade?.toLowerCase() === 'websocket') {
         return next();
       }
 
-      const origin = req.headers.origin || '*';
-      res.header('Access-Control-Allow-Origin', origin);
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'https://localhost:3000',
+        'https://documents-production.up.railway.app',
+        'https://piehost.com',
+        'http://piehost.com',
+        'https://websocketking.com',
+        'https://www.websocketking.com',
+        'https://postman.com',
+        'https://www.postman.com',
+        'https://admin.socket.io'
+      ];
+
+      const origin = req.headers.origin;
+      if (origin && allowedOrigins.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+      } else {
+        res.header('Access-Control-Allow-Origin', 'https://documents-production.up.railway.app');
+      }
+
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
       res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Max-Age', '86400'); // 24 hours
       
       if (req.method === 'OPTIONS') {
         res.status(200).end();
@@ -100,21 +123,116 @@ async function main() {
       res.status(200).json({ status: 'ok' });
     });
 
+    // Add debug middleware
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      const start = Date.now();
+      
+      // Log request start
+      console.log('Request started:', {
+        method: req.method,
+        url: req.url,
+        headers: {
+          upgrade: req.headers.upgrade,
+          connection: req.headers.connection,
+          origin: req.headers.origin
+        },
+        timestamp: new Date().toISOString()
+      });
+
+      // Log response finish
+      res.on('finish', () => {
+        const duration = Date.now() - start;
+        console.log('Request finished:', {
+          method: req.method,
+          url: req.url,
+          status: res.statusCode,
+          duration: `${duration}ms`,
+          timestamp: new Date().toISOString()
+        });
+      });
+
+      next();
+    });
+
+    // Add WebSocket specific logging
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.headers.upgrade?.toLowerCase() === 'websocket') {
+        console.log('WebSocket upgrade request:', {
+          headers: req.headers,
+          url: req.url,
+          method: req.method,
+          timestamp: new Date().toISOString()
+        });
+      }
+      next();
+    });
+
     // Initialize Socket.IO after all middleware
     const io = setupWebSocket(server);
 
-    // Add WebSocket error handling
+    // Add WebSocket error handling with enhanced logging
     server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
+      console.log('WebSocket upgrade event:', {
+        url: req.url,
+        headers: req.headers,
+        timestamp: new Date().toISOString()
+      });
+
+      // Track connections
+      if (activeConnections >= MAX_CONNECTIONS) {
+        console.warn('Max connections reached:', {
+          activeConnections,
+          timestamp: new Date().toISOString()
+        });
+        socket.destroy();
+        return;
+      }
+
+      activeConnections++;
+      console.log('New WebSocket connection:', {
+        activeConnections,
+        url: req.url,
+        headers: {
+          upgrade: req.headers.upgrade,
+          connection: req.headers.connection,
+          origin: req.headers.origin
+        },
+        timestamp: new Date().toISOString()
+      });
+
       // Prevent socket timeout
       socket.setTimeout(0);
       socket.setNoDelay(true);
-      socket.setKeepAlive(true);
+      socket.setKeepAlive(true, 30000);
 
       socket.on('error', (err: Error) => {
-        console.error('WebSocket upgrade error:', err);
+        console.error('WebSocket error:', {
+          error: err.message,
+          stack: err.stack,
+          activeConnections,
+          timestamp: new Date().toISOString()
+        });
+        activeConnections--;
         socket.destroy();
       });
+
+      socket.on('close', () => {
+        activeConnections--;
+        console.log('WebSocket closed:', {
+          activeConnections,
+          url: req.url,
+          timestamp: new Date().toISOString()
+        });
+      });
     });
+
+    // Add connection monitoring
+    setInterval(() => {
+      console.log('Connection status:', {
+        activeConnections,
+        timestamp: new Date().toISOString()
+      });
+    }, 60000); // Log every minute
 
     // Let Next.js handle all other routes
     app.all('*', (req: Request, res: Response) => {
