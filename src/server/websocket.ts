@@ -115,9 +115,9 @@ export function setupWebSocket(server: HttpServer) {
       allowedHeaders: ['Authorization', 'Content-Type']
     },
     allowEIO3: true,
-    pingInterval: 25000,
-    pingTimeout: 20000,
-    connectTimeout: 20000,
+    pingInterval: 10000,
+    pingTimeout: 5000,
+    connectTimeout: 10000,
     transports: ['websocket'],
     allowUpgrades: false,
     maxHttpBufferSize: 1e8,
@@ -127,7 +127,11 @@ export function setupWebSocket(server: HttpServer) {
     connectionStateRecovery: {
       maxDisconnectionDuration: 2 * 60 * 1000,
       skipMiddlewares: true,
-    }
+    },
+    retries: 3,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    randomizationFactor: 0.5
   });
 
   // Add error handling for the server
@@ -148,6 +152,15 @@ export function setupWebSocket(server: HttpServer) {
     console.log('Engine upgrade event:', req.url);
   });
 
+  // Add connection event logging
+  io.engine.on('connection', (socket: any) => {
+    console.log('Engine connection event, socket:', socket.id);
+  });
+
+  io.engine.on('handshake', (handshake: any) => {
+    console.log('Engine handshake event:', handshake.id);
+  });
+
   // Authentication middleware
   io.use(async (socket: DocumentSocket, next) => {
     try {
@@ -155,7 +168,8 @@ export function setupWebSocket(server: HttpServer) {
         auth: socket.handshake.auth,
         headers: socket.handshake.headers,
         query: socket.handshake.query,
-        id: socket.id
+        id: socket.id,
+        transport: socket.conn?.transport?.name
       });
 
       const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
