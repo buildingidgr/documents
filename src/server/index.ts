@@ -4,6 +4,8 @@ import next from 'next';
 import { setupWebSocket } from './websocket';
 import { db } from './db';
 import { authenticateUser } from './auth';
+import { IncomingMessage } from 'http';
+import { Socket } from 'net';
 
 // Add type for the extended Request
 declare global {
@@ -31,10 +33,7 @@ async function main() {
     const app = express();
     const server = createServer(app);
 
-    // Initialize Socket.IO before any middleware
-    const io = setupWebSocket(server);
-
-    // Add CORS middleware
+    // Add CORS middleware first
     app.use((req: Request, res: Response, next: NextFunction) => {
       const origin = req.headers.origin || '*';
       res.header('Access-Control-Allow-Origin', origin);
@@ -55,24 +54,21 @@ async function main() {
 
     // Add logging middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
-      // Skip logging for WebSocket polling requests
-      if (req.url?.startsWith('/ws')) {
-        next();
-        return;
+      // Only log HTTP requests, not WebSocket
+      if (!req.url?.startsWith('/ws')) {
+        console.log('Incoming HTTP request:', {
+          method: req.method,
+          path: req.path,
+          headers: req.headers,
+          query: req.query
+        });
       }
-
-      console.log('Incoming HTTP request:', {
-        method: req.method,
-        path: req.path,
-        headers: req.headers,
-        query: req.query
-      });
       next();
     });
 
     // Add authentication middleware
     app.use(async (req: Request, res: Response, next: NextFunction) => {
-      // Skip auth for WebSocket polling requests
+      // Skip auth for WebSocket requests - they'll be handled by Socket.IO auth
       if (req.url?.startsWith('/ws')) {
         next();
         return;
@@ -102,6 +98,16 @@ async function main() {
     // Add health check endpoint
     app.get('/api/healthcheck', (req: Request, res: Response) => {
       res.status(200).json({ status: 'ok' });
+    });
+
+    // Initialize Socket.IO after all middleware
+    const io = setupWebSocket(server);
+
+    // Add WebSocket error handling
+    server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
+      socket.on('error', (err: Error) => {
+        console.error('WebSocket upgrade error:', err);
+      });
     });
 
     // Let Next.js handle all other routes
