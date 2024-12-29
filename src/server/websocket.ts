@@ -221,17 +221,132 @@ export function setupWebSocket(server: HttpServer) {
     }
   });
 
-  // Handle disconnection and cleanup
-  io.on('disconnect', (socket: Socket) => {
-    const conn = connections.get(socket.id);
-    connections.delete(socket.id);
-    
-    console.log('Connection closed:', {
+  // Handle connections and disconnections in the document namespace
+  docNamespace.on('connection', (socket: DocumentSocket) => {
+    console.log('Client connected to document namespace:', {
       socketId: socket.id,
-      userId: conn?.userId,
-      duration: conn ? Date.now() - conn.connectedAt.getTime() : 0,
-      remainingConnections: connections.size,
+      userId: socket.data.userId,
+      transport: socket.conn?.transport?.name,
       timestamp: new Date().toISOString()
+    });
+
+    // Handle document join
+    socket.on('document:join', async (documentId: string) => {
+      try {
+        if (!socket.data.userId) {
+          socket.emit('error', { message: 'Not authenticated' });
+          return;
+        }
+
+        // Verify document access
+        const document = await db.document.findFirst({
+          where: {
+            id: documentId,
+            users: {
+              some: {
+                id: socket.data.userId
+              }
+            }
+          }
+        });
+
+        if (!document) {
+          socket.emit('error', { message: 'Document access denied' });
+          return;
+        }
+
+        // Leave previous document room if any
+        if (socket.data.documentId) {
+          socket.leave(socket.data.documentId);
+        }
+
+        // Join document room
+        socket.join(documentId);
+        socket.data.documentId = documentId;
+
+        // Update connection tracking
+        const conn = connections.get(socket.id);
+        if (conn) {
+          conn.documentId = documentId;
+          connections.set(socket.id, conn);
+        }
+
+        socket.emit('document:joined', {
+          documentId,
+          userId: socket.data.userId
+        });
+
+        // Notify other clients in the room
+        socket.to(documentId).emit('document:presence', {
+          type: 'presence',
+          userId: socket.data.userId,
+          documentId: documentId,
+          data: { status: 'online' }
+        });
+      } catch (error) {
+        console.error('Error joining document:', error);
+        socket.emit('error', { message: 'Failed to join document' });
+      }
+    });
+
+    // Handle document updates
+    socket.on('document:update', async (data: DocumentUpdate) => {
+      if (!socket.data.userId || !socket.data.documentId) {
+        socket.emit('error', { message: 'Not authenticated or not in a document' });
+        return;
+      }
+
+      try {
+        // Update document in database
+        await db.document.update({
+          where: { id: socket.data.documentId },
+          data: {
+            content: data.content as Prisma.InputJsonValue,
+            versions: {
+              create: {
+                content: data.content as Prisma.InputJsonValue,
+                user: { connect: { id: socket.data.userId } }
+              }
+            }
+          }
+        });
+
+        // Broadcast update to other clients
+        socket.to(socket.data.documentId).emit('document:update', {
+          type: 'update',
+          userId: socket.data.userId,
+          documentId: socket.data.documentId,
+          content: data.content
+        });
+      } catch (error) {
+        console.error('Document update error:', error);
+        socket.emit('error', { message: 'Failed to update document' });
+      }
+    });
+
+    // Handle disconnection
+    socket.on('disconnect', () => {
+      const conn = connections.get(socket.id);
+      connections.delete(socket.id);
+      
+      console.log('Client disconnected:', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+        documentId: socket.data.documentId,
+        duration: conn ? Date.now() - conn.connectedAt.getTime() : 0,
+        remainingConnections: connections.size,
+        timestamp: new Date().toISOString()
+      });
+
+      // Notify other clients if the user was in a document
+      if (socket.data.documentId && socket.data.userId) {
+        socket.to(socket.data.documentId).emit('document:presence', {
+          type: 'presence',
+          userId: socket.data.userId,
+          documentId: socket.data.documentId,
+          data: { status: 'offline' }
+        });
+      }
     });
   });
 
