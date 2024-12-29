@@ -16,6 +16,12 @@ export async function validateToken(token: string): Promise<AuthResponse> {
   console.log('Auth Service Request:', {
     url: validationUrl,
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Origin': 'https://documents-production.up.railway.app',
+      'Accept': 'application/json',
+      'User-Agent': 'documents-service'
+    },
     body: requestBody
   });
 
@@ -25,7 +31,8 @@ export async function validateToken(token: string): Promise<AuthResponse> {
       headers: {
         'Content-Type': 'application/json',
         'Origin': 'https://documents-production.up.railway.app',
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'User-Agent': 'documents-service'
       },
       body: requestBody,
     });
@@ -33,7 +40,8 @@ export async function validateToken(token: string): Promise<AuthResponse> {
     const responseData = await response.json();
     console.log('Auth Service Response:', {
       status: response.status,
-      body: responseData
+      body: responseData,
+      headers: Object.fromEntries(response.headers.entries())
     });
 
     if (!response.ok) {
@@ -42,7 +50,14 @@ export async function validateToken(token: string): Promise<AuthResponse> {
 
     return responseData as AuthResponse;
   } catch (error) {
-    console.error('Token validation error:', error);
+    console.error('Token validation error:', {
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      } : error,
+      timestamp: new Date().toISOString()
+    });
     throw new Error('Invalid or expired token');
   }
 }
@@ -61,66 +76,17 @@ export async function authenticateUser(token?: string): Promise<string> {
     // Remove 'Bearer ' prefix if present
     const cleanToken = token.replace(/^Bearer\s+/i, '');
     
-    const authServiceUrl = process.env.AUTH_SERVICE_URL;
-    if (!authServiceUrl) {
-      throw new Error('AUTH_SERVICE_URL is not set');
-    }
-
-    // Add detailed request logging
-    console.log('Auth request details:', {
-      url: `${authServiceUrl}/v1/token/validate`,
-      token: cleanToken.substring(0, 20) + '...',
-      tokenLength: cleanToken.length,
-      timestamp: new Date().toISOString()
-    });
-
-    const response = await fetch(`${authServiceUrl}/v1/token/validate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://documents-production.up.railway.app',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({ token: cleanToken }),
-    });
-
-    // Add detailed response logging
-    console.log('Auth service response:', {
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-      timestamp: new Date().toISOString()
-    });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error('Token validation failed:', {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorData,
-        timestamp: new Date().toISOString()
-      });
-      throw new TRPCError({
-        code: 'UNAUTHORIZED',
-        message: `Token validation failed: ${response.statusText}`,
-      });
-    }
-
-    const data = await response.json();
-    console.log('Token validation response:', {
-      isValid: data.isValid,
-      hasUserId: !!data.userId,
-      timestamp: new Date().toISOString()
-    });
-
-    if (!data.isValid || !data.userId) {
+    // Use validateToken function for consistency
+    const authResponse = await validateToken(cleanToken);
+    
+    if (!authResponse.isValid || !authResponse.userId) {
       throw new TRPCError({
         code: 'UNAUTHORIZED',
         message: 'Invalid token',
       });
     }
 
-    return data.userId;
+    return authResponse.userId;
   } catch (error) {
     console.error('Token validation error:', {
       error: error instanceof Error ? {
