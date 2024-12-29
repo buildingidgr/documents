@@ -94,6 +94,18 @@ export function setupWebSocket(server: HttpServer) {
   // Track active connections
   const activeConnections = new Map<string, { userId?: string; documentId?: string }>();
 
+  // Add root namespace connection logging
+  io.on('connection', (socket: Socket) => {
+    console.log('Root namespace connection:', {
+      id: socket.id,
+      handshake: {
+        headers: socket.handshake.headers,
+        query: socket.handshake.query,
+        auth: socket.handshake.auth
+      }
+    });
+  });
+
   io.engine.on('connection', (socket: EngineSocket) => {
     const transport = socket.transport?.name || 'unknown';
     console.log('Engine.IO connection established:', {
@@ -148,6 +160,14 @@ export function setupWebSocket(server: HttpServer) {
 
   const docNamespace = io.of('/document');
 
+  // Log namespace connection attempts
+  docNamespace.on('connection_error', (error: Error) => {
+    console.error('Document namespace connection error:', {
+      message: error.message,
+      stack: error.stack
+    });
+  });
+
   // Authentication middleware - this runs first
   docNamespace.use(async (socket: DocumentSocket, next: (err?: Error) => void) => {
     try {
@@ -155,14 +175,27 @@ export function setupWebSocket(server: HttpServer) {
         id: socket.id,
         headers: socket.handshake.headers,
         auth: socket.handshake.auth,
-        transport: socket.conn?.transport?.name
+        transport: socket.conn?.transport?.name,
+        nsp: socket.nsp.name  // Log the namespace
       });
+
+      // Check if we're in the correct namespace
+      if (socket.nsp.name !== '/document') {
+        console.log('Wrong namespace:', {
+          expected: '/document',
+          actual: socket.nsp.name
+        });
+        return next(new Error('Invalid namespace'));
+      }
 
       const token = socket.handshake.auth.token || 
                     socket.handshake.headers.authorization?.split(' ')[1];
 
       if (!token) {
-        console.log('Authentication failed: No token provided');
+        console.log('Authentication failed: No token provided', {
+          headers: socket.handshake.headers,
+          auth: socket.handshake.auth
+        });
         return next(new Error('Authentication required'));
       }
 
@@ -187,7 +220,8 @@ export function setupWebSocket(server: HttpServer) {
         console.log('Socket authenticated successfully:', {
           userId,
           socketId: socket.id,
-          transport: socket.conn?.transport?.name
+          transport: socket.conn?.transport?.name,
+          namespace: socket.nsp.name
         });
         
         next();
