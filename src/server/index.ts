@@ -44,26 +44,26 @@ async function main() {
         return next();
       }
 
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'https://localhost:3000',
-        'https://documents-production.up.railway.app',
-        'https://piehost.com',
-        'http://piehost.com',
-        'https://websocketking.com',
-        'https://www.websocketking.com',
-        'https://postman.com',
-        'https://www.postman.com',
-        'https://admin.socket.io'
-      ];
-
       const origin = req.headers.origin;
-      if (origin && allowedOrigins.includes(origin)) {
-        res.header('Access-Control-Allow-Origin', origin);
-      } else {
-        res.header('Access-Control-Allow-Origin', 'https://documents-production.up.railway.app');
+
+      // Always allow localhost for development
+      if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:')) {
+        res.header('Access-Control-Allow-Origin', origin || 'http://localhost:3000');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Max-Age', '86400'); // 24 hours
+        
+        if (req.method === 'OPTIONS') {
+          res.status(200).end();
+          return;
+        }
+        return next();
       }
 
+      // For production, we'll allow all origins for now
+      // TODO: Implement proper domain validation based on customer/tenant
+      res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
       res.header('Access-Control-Allow-Credentials', 'true');

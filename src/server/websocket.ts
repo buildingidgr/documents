@@ -96,19 +96,26 @@ export function setupWebSocket(server: HttpServer) {
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>({
     path: '/ws',
     cors: {
-      origin: [
-        'http://localhost:3000',
-        'https://localhost:3000',
-        'https://documents-production.up.railway.app',
-        'https://piehost.com',
-        'http://piehost.com',
-        'https://websocketking.com',
-        'https://www.websocketking.com',
-        'https://postman.com',
-        'https://www.postman.com',
-        'https://admin.socket.io',
-        'chrome-extension://ophmdkgfcjapomjdpfobjfbihojchbko'
-      ],
+      origin: async (origin, callback) => {
+        // Always allow localhost for development
+        if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:')) {
+          callback(null, true);
+          return;
+        }
+
+        try {
+          // Here you would typically:
+          // 1. Extract customer/tenant ID from the request (e.g., from subdomain or auth token)
+          // 2. Look up allowed domains for that customer in your database
+          // 3. Validate the origin against the allowed domains
+          
+          // For now, we'll allow all origins in production
+          // TODO: Implement proper domain validation based on customer/tenant
+          callback(null, true);
+        } catch (error) {
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
       methods: ["GET", "POST", "OPTIONS"],
       allowedHeaders: ["Authorization", "Content-Type", "Accept"],
       credentials: true
