@@ -12,6 +12,9 @@ const plateContentSchema = z.object({
     content: z.array(z.object({
       type: z.string(),
       text: z.string().optional(),
+      marks: z.array(z.object({
+        type: z.string()
+      })).optional(),
       content: z.array(z.any()).optional(),
     })).optional(),
   })),
@@ -168,13 +171,26 @@ async function handleUpdate(
     };
 
     if (validatedInput.content) {
-      updateData.content = validatedInput.content as Prisma.InputJsonValue;
+      console.log('Content update validation:', {
+        documentId,
+        content: validatedInput.content,
+        timestamp: new Date().toISOString()
+      });
+
+      // Ensure content structure is preserved exactly as received
+      updateData.content = JSON.parse(JSON.stringify(validatedInput.content));
       updateData.versions = {
         create: {
-          content: validatedInput.content as Prisma.InputJsonValue,
+          content: JSON.parse(JSON.stringify(validatedInput.content)),
           user: { connect: { id: userId } },
         },
       };
+
+      console.log('Content after processing:', {
+        documentId,
+        content: updateData.content,
+        timestamp: new Date().toISOString()
+      });
     }
 
     console.log('Updating document:', {
