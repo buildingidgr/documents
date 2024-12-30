@@ -36,6 +36,20 @@ interface Transport {
   destroyed?: boolean;
 }
 
+// Add Socket.IO transport types at the top with other interfaces
+interface EngineTransport {
+  name: string;
+  writable: boolean;
+  readable: boolean;
+  sid?: string;
+}
+
+interface EngineError extends Error {
+  code?: string;
+  transport?: string;
+  description?: string;
+}
+
 interface ServerToClientEvents {
   'error': (data: { message: string }) => void;
   'document:joined': (data: { documentId: string; userId: string }) => void;
@@ -121,13 +135,13 @@ export function setupWebSocket(server: HttpServer) {
       credentials: true
     },
     // Connection settings
-    transports: ['websocket'],
+    transports: ['websocket', 'polling'],
     pingInterval: 25000,
     pingTimeout: 20000,
     connectTimeout: 10000,
     maxHttpBufferSize: 1e8,
     // Socket.IO options
-    allowUpgrades: false,
+    allowUpgrades: true,
     upgradeTimeout: 10000,
     // Enable compression
     perMessageDeflate: {
@@ -143,6 +157,34 @@ export function setupWebSocket(server: HttpServer) {
 
   // Attach to server after configuration
   io.attach(server);
+
+  // Monitor transport changes
+  io.engine.on('connection', (socket) => {
+    console.log('New engine connection:', {
+      id: socket.id,
+      transport: socket.transport.name,
+      timestamp: new Date().toISOString()
+    });
+
+    socket.on('upgrade', (transport: EngineTransport) => {
+      console.log('Transport upgraded:', {
+        id: socket.id,
+        from: socket.transport.name,
+        to: transport.name,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    socket.on('upgradeError', (err: EngineError) => {
+      console.error('Transport upgrade error:', {
+        id: socket.id,
+        transport: socket.transport.name,
+        error: err.message,
+        code: err.code,
+        timestamp: new Date().toISOString()
+      });
+    });
+  });
 
   // Add authentication middleware
   io.use(async (socket, next) => {
