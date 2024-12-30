@@ -162,26 +162,92 @@ async function handleUpdate(
 }
 
 async function handleDelete(documentId: string, userId: string, res: NextApiResponse) {
-  // Check document access
-  const document = await db.document.findFirst({
-    where: {
-      id: documentId,
-      users: {
-        some: {
-          id: userId,
+  try {
+    console.log('Attempting to delete document:', {
+      documentId,
+      userId,
+      timestamp: new Date().toISOString()
+    });
+
+    // Check document access
+    const document = await db.document.findFirst({
+      where: {
+        id: documentId,
+        users: {
+          some: {
+            id: userId,
+          },
         },
       },
-    },
-  });
+      include: {
+        users: true,
+        versions: {
+          select: {
+            id: true
+          }
+        }
+      }
+    });
 
-  if (!document) {
-    return res.status(404).json({ error: 'Document not found' });
+    if (!document) {
+      console.log('Document not found or access denied:', {
+        documentId,
+        userId,
+        timestamp: new Date().toISOString()
+      });
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // First, delete all relationships
+    await db.$transaction([
+      // Delete user relationships
+      db.document.update({
+        where: { id: documentId },
+        data: {
+          users: {
+            disconnect: document.users.map(user => ({ id: user.id }))
+          }
+        }
+      }),
+      // Delete versions
+      db.version.deleteMany({
+        where: { documentId }
+      }),
+      // Finally, delete the document
+      db.document.delete({
+        where: { id: documentId }
+      })
+    ]);
+
+    console.log('Document deleted successfully:', {
+      documentId,
+      userId,
+      timestamp: new Date().toISOString()
+    });
+
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Error deleting document:', {
+      documentId,
+      userId,
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      } : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+
+    // Check for specific Prisma errors
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+      if (error.code === 'P2003') {
+        return res.status(400).json({ error: 'Cannot delete document due to existing references' });
+      }
+    }
+
+    return res.status(500).json({ error: 'Failed to delete document' });
   }
-
-  // Delete document and all related data (versions will be cascade deleted)
-  await db.document.delete({
-    where: { id: documentId },
-  });
-
-  return res.status(204).end();
 } 
