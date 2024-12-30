@@ -97,16 +97,20 @@ export function setupWebSocket(server: HttpServer) {
     path: '/socket.io/',
     cors: {
       origin: async (origin, callback) => {
+        console.log('CORS check for origin:', origin);
         // Always allow localhost for development
         if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:')) {
+          console.log('Allowing localhost origin');
           callback(null, true);
           return;
         }
 
         try {
           // Allow all origins in production for now, including VS Code Live Share
+          console.log('Allowing origin in production:', origin);
           callback(null, true);
         } catch (error) {
+          console.error('CORS error:', error);
           callback(new Error('Not allowed by CORS'));
         }
       },
@@ -203,10 +207,27 @@ export function setupWebSocket(server: HttpServer) {
 
   // Monitor all connections
   io.on('connection', (socket: Socket) => {
-    console.log('Client connected:', {
+    console.log('Client connected with details:', {
       socketId: socket.id,
       userId: socket.data.userId,
+      transport: socket.conn.transport.name,
+      handshake: {
+        headers: socket.handshake.headers,
+        query: socket.handshake.query,
+        auth: socket.handshake.auth
+      },
       timestamp: new Date().toISOString()
+    });
+
+    // Log all incoming events for debugging
+    socket.onAny((eventName, ...args) => {
+      console.log('Received event:', {
+        event: eventName,
+        args,
+        socketId: socket.id,
+        userId: socket.data.userId,
+        timestamp: new Date().toISOString()
+      });
     });
 
     // Monitor connection state
