@@ -100,65 +100,148 @@ async function handleUpdate(
   body: any,
   res: NextApiResponse
 ) {
-  // Validate input
-  const validatedInput = updateDocumentSchema.parse(body);
+  try {
+    console.log('Update request received:', {
+      documentId,
+      userId,
+      body,
+      timestamp: new Date().toISOString()
+    });
 
-  // Check document access
-  const document = await db.document.findFirst({
-    where: {
-      id: documentId,
-      users: {
-        some: {
-          id: userId,
+    // Validate input
+    const validatedInput = updateDocumentSchema.parse(body);
+
+    // Check if document exists first
+    const documentExists = await db.document.findUnique({
+      where: {
+        id: documentId
+      }
+    });
+
+    console.log('Document existence check:', {
+      documentId,
+      exists: !!documentExists,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!documentExists) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Then check user access
+    const userAccess = await db.document.findFirst({
+      where: {
+        id: documentId,
+        users: {
+          some: {
+            id: userId,
+          },
         },
       },
-    },
-  });
-
-  if (!document) {
-    return res.status(404).json({ error: 'Document not found' });
-  }
-
-  // Create new version if content is updated
-  const updateData: Prisma.DocumentUpdateInput = {
-    ...(validatedInput.title && { title: validatedInput.title }),
-  };
-
-  if (validatedInput.content) {
-    updateData.content = validatedInput.content as Prisma.InputJsonValue;
-    updateData.versions = {
-      create: {
-        content: validatedInput.content as Prisma.InputJsonValue,
-        user: { connect: { id: userId } },
+      include: {
+        users: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
+    });
+
+    console.log('User access check:', {
+      documentId,
+      userId,
+      hasAccess: !!userAccess,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!userAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Create new version if content is updated
+    const updateData: Prisma.DocumentUpdateInput = {
+      ...(validatedInput.title && { title: validatedInput.title }),
+      users: {
+        connect: userAccess.users.map(user => ({ id: user.id }))
+      }
     };
+
+    if (validatedInput.content) {
+      updateData.content = validatedInput.content as Prisma.InputJsonValue;
+      updateData.versions = {
+        create: {
+          content: validatedInput.content as Prisma.InputJsonValue,
+          user: { connect: { id: userId } },
+        },
+      };
+    }
+
+    console.log('Updating document:', {
+      documentId,
+      userId,
+      updateData,
+      timestamp: new Date().toISOString()
+    });
+
+    const updatedDocument = await db.document.update({
+      where: { id: documentId },
+      data: updateData,
+      include: {
+        users: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        versions: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          select: {
+            id: true,
+            content: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    console.log('Document updated successfully:', {
+      documentId,
+      userId,
+      timestamp: new Date().toISOString()
+    });
+
+    return res.status(200).json(updatedDocument);
+  } catch (error) {
+    console.error('Error updating document:', {
+      documentId,
+      userId,
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      } : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ 
+        error: 'Invalid request data',
+        details: error.errors
+      });
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+    }
+
+    return res.status(500).json({ error: 'Failed to update document' });
   }
-
-  const updatedDocument = await db.document.update({
-    where: { id: documentId },
-    data: updateData,
-    include: {
-      users: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-      versions: {
-        orderBy: {
-          createdAt: 'desc',
-        },
-        take: 1,
-        select: {
-          id: true,
-          content: true,
-          createdAt: true,
-        },
-      },
-    },
-  });
-
-  return res.status(200).json(updatedDocument);
 }
 
 async function handleDelete(documentId: string, userId: string, res: NextApiResponse) {
