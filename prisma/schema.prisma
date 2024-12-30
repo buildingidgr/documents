@@ -15,6 +15,10 @@ model Document {
   updatedAt DateTime  @updatedAt
   users     User[]
   versions  Version[]
+
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([title])
 }
 
 model Version {
@@ -25,6 +29,11 @@ model Version {
   documentId String
   user       User     @relation(fields: [userId], references: [id])
   userId     String
+
+  @@index([createdAt])
+  @@index([documentId])
+  @@index([userId])
+  @@index([documentId, createdAt])
 }
 
 model User {
@@ -32,5 +41,7 @@ model User {
   name      String?
   documents Document[]
   versions  Version[]
+
+  @@index([name])
 }
 
