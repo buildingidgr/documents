@@ -138,7 +138,7 @@ export function setupWebSocket(server: HttpServer) {
     transports: ['websocket', 'polling'],
     pingInterval: 25000,
     pingTimeout: 20000,
-    connectTimeout: 10000,
+    connectTimeout: 45000,  // Increased timeout for proxy
     maxHttpBufferSize: 1e8,
     // Socket.IO options
     allowUpgrades: true,
@@ -152,24 +152,46 @@ export function setupWebSocket(server: HttpServer) {
     // Other options
     allowEIO3: true,
     cookie: false,
-    serveClient: false
+    serveClient: false,
+    // Add proxy support
+    allowRequest: (req: IncomingMessage, callback: (err: string | null | undefined, success: boolean) => void) => {
+      // Log headers for debugging
+      console.log('Socket.IO request headers:', {
+        headers: req.headers,
+        url: req.url,
+        method: req.method,
+        timestamp: new Date().toISOString()
+      });
+      callback(null, true);
+    }
   });
 
   // Attach to server after configuration
   io.attach(server);
 
-  // Monitor transport changes
-  io.engine.on('connection', (socket) => {
+  // Add connection retry logic
+  io.engine.on('connection_error', (err: { message: string; code?: string; type?: string }) => {
+    console.error('Connection error:', {
+      error: err.message,
+      code: err.code,
+      type: err.type,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Monitor transport changes with more detail
+  io.engine.on('connection', (socket: any) => {
     console.log('New engine connection:', {
       id: socket.id,
-      transport: socket.transport.name,
+      transport: socket.transport?.name,
+      headers: socket.request?.headers,
       timestamp: new Date().toISOString()
     });
 
     socket.on('upgrade', (transport: EngineTransport) => {
       console.log('Transport upgraded:', {
         id: socket.id,
-        from: socket.transport.name,
+        from: socket.transport?.name,
         to: transport.name,
         timestamp: new Date().toISOString()
       });
@@ -178,9 +200,19 @@ export function setupWebSocket(server: HttpServer) {
     socket.on('upgradeError', (err: EngineError) => {
       console.error('Transport upgrade error:', {
         id: socket.id,
-        transport: socket.transport.name,
+        transport: socket.transport?.name,
         error: err.message,
         code: err.code,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Monitor close events
+    socket.on('close', (reason: string) => {
+      console.log('Engine socket closed:', {
+        id: socket.id,
+        reason,
+        transport: socket.transport?.name,
         timestamp: new Date().toISOString()
       });
     });
