@@ -94,7 +94,7 @@ export function setupWebSocket(server: HttpServer) {
 
   // Create Socket.IO server
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>({
-    path: '/ws',
+    path: '/socket.io/',
     cors: {
       origin: async (origin, callback) => {
         // Always allow localhost for development
@@ -104,13 +104,7 @@ export function setupWebSocket(server: HttpServer) {
         }
 
         try {
-          // Here you would typically:
-          // 1. Extract customer/tenant ID from the request (e.g., from subdomain or auth token)
-          // 2. Look up allowed domains for that customer in your database
-          // 3. Validate the origin against the allowed domains
-          
-          // For now, we'll allow all origins in production
-          // TODO: Implement proper domain validation based on customer/tenant
+          // Allow all origins in production for now, including VS Code Live Share
           callback(null, true);
         } catch (error) {
           callback(new Error('Not allowed by CORS'));

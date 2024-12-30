@@ -83,7 +83,7 @@ async function main() {
     // Add logging middleware
     app.use((req: Request, res: Response, next: NextFunction) => {
       // Only log HTTP requests, not WebSocket
-      if (!req.url?.startsWith('/ws')) {
+      if (!req.url?.startsWith('/socket.io')) {
         console.log('Incoming HTTP request:', {
           method: req.method,
           path: req.path,
@@ -97,7 +97,7 @@ async function main() {
     // Add authentication middleware
     app.use(async (req: Request, res: Response, next: NextFunction) => {
       // Skip auth for WebSocket requests and upgrades
-      if (req.headers.upgrade === 'websocket' || req.url?.startsWith('/ws')) {
+      if (req.headers.upgrade === 'websocket' || req.url?.startsWith('/socket.io')) {
         return next();
       }
 
