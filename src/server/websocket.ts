@@ -41,12 +41,14 @@ interface ServerToClientEvents {
   'document:joined': (data: { documentId: string; userId: string }) => void;
   'document:update': (data: DocumentUpdate) => void;
   'document:presence': (data: { type: string; userId: string; documentId: string; data: any }) => void;
+  'pong': (data: { timestamp: string }) => void;
 }
 
 interface ClientToServerEvents {
   'document:join': (documentId: string) => void;
   'document:update': (data: DocumentUpdate) => void;
   'disconnect': () => void;
+  'ping': (callback: (data: { timestamp: string }) => void) => void;
 }
 
 interface InterServerEvents {
@@ -217,6 +219,23 @@ export function setupWebSocket(server: HttpServer) {
         auth: socket.handshake.auth
       },
       timestamp: new Date().toISOString()
+    });
+
+    // Handle custom ping events
+    socket.on('ping', (callback) => {
+      console.log('Received ping from client:', {
+        socketId: socket.id,
+        userId: socket.data.userId,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Send pong response
+      const response = { timestamp: new Date().toISOString() };
+      if (typeof callback === 'function') {
+        callback(response);
+      } else {
+        socket.emit('pong', response);
+      }
     });
 
     // Log all incoming events for debugging
