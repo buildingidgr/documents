@@ -124,41 +124,97 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 async function handleGet(documentId: string, userId: string, res: NextApiResponse) {
-  const document = await db.document.findFirst({
-    where: {
-      id: documentId,
-      users: {
-        some: {
-          id: userId,
-        },
-      },
-    },
-    include: {
-      users: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
-      versions: {
-        orderBy: {
-          createdAt: 'desc',
-        },
-        take: 1,
-        select: {
-          id: true,
-          content: true,
-          createdAt: true,
-        },
-      },
-    },
-  });
+  try {
+    console.log('Fetching document:', {
+      documentId,
+      userId,
+      timestamp: new Date().toISOString()
+    });
 
-  if (!document) {
-    return res.status(404).json({ error: 'Document not found' });
+    const document = await db.document.findFirst({
+      where: {
+        id: documentId,
+        users: {
+          some: {
+            id: userId,
+          },
+        },
+      },
+      include: {
+        users: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        versions: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+          select: {
+            id: true,
+            content: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!document) {
+      console.log('Document not found:', {
+        documentId,
+        userId,
+        timestamp: new Date().toISOString()
+      });
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Log the document content for debugging
+    console.log('Document content from database:', {
+      documentId,
+      content: document.content,
+      timestamp: new Date().toISOString()
+    });
+
+    // Validate the content structure
+    if (document.content && !validatePlateContent(document.content)) {
+      console.warn('Invalid document content structure:', {
+        documentId,
+        content: document.content,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Ensure we're returning the actual content from the document
+    const response = {
+      ...document,
+      content: document.content || {
+        type: 'doc',
+        content: [{ type: 'p', children: [{ text: '' }] }]
+      }
+    };
+
+    console.log('Sending document response:', {
+      documentId,
+      hasContent: !!response.content,
+      timestamp: new Date().toISOString()
+    });
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('Error fetching document:', {
+      documentId,
+      userId,
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      } : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+    return res.status(500).json({ error: 'Failed to fetch document' });
   }
-
-  return res.status(200).json(document);
 }
 
 async function handleUpdate(
