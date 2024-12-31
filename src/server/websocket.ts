@@ -50,6 +50,35 @@ interface EngineError extends Error {
   description?: string;
 }
 
+// Add Plate.js types
+interface PlateText {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  [key: string]: any; // For other formatting marks
+}
+
+interface PlateElement {
+  type: string;
+  children: (PlateElement | PlateText)[];
+  [key: string]: any; // For other element attributes
+}
+
+interface PlateDocument {
+  type: 'doc';
+  content: PlateElement[];
+}
+
+interface DocumentUpdate {
+  type: 'update';
+  documentId: string;
+  userId: string;
+  data: {
+    content: PlateDocument;
+  };
+}
+
 interface ServerToClientEvents {
   'error': (data: { message: string }) => void;
   'document:joined': (data: { documentId: string; userId: string }) => void;
@@ -84,14 +113,6 @@ type DocumentSocket = Socket<
     transport: Transport;
   };
 };
-
-interface DocumentUpdate {
-  type: string;
-  documentId: string;
-  userId: string;
-  content: any;
-  data?: any;
-}
 
 export function setupWebSocket(server: HttpServer) {
   console.log('Setting up Socket.IO server...');
@@ -416,10 +437,47 @@ export function setupWebSocket(server: HttpServer) {
 
     socket.on('document:update', async (data: DocumentUpdate) => {
       try {
+        console.log('Received document update:', {
+          socketId: socket.id,
+          userId: socket.data.userId,
+          documentId: data.documentId,
+          type: data.type,
+          timestamp: new Date().toISOString()
+        });
+
+        // Validate the update structure
+        if (!data.data?.content?.type || data.data.content.type !== 'doc') {
+          throw new Error('Invalid content structure');
+        }
+
+        // Validate content elements
+        const validateElement = (element: PlateElement | PlateText): boolean => {
+          if ('text' in element) {
+            // Text node validation
+            return typeof element.text === 'string';
+          }
+          
+          // Element node validation
+          if (!element.type || !Array.isArray(element.children)) {
+            return false;
+          }
+          
+          // Recursively validate children
+          return element.children.every(child => validateElement(child));
+        };
+
+        const isValid = data.data.content.content.every(element => validateElement(element));
+        if (!isValid) {
+          throw new Error('Invalid content structure');
+        }
+
+        // Set userId from authenticated socket
+        data.userId = socket.data.userId!;
+
         // Broadcast the update to others in the document
         socket.to(data.documentId).emit('document:update', data);
 
-        console.log('Document update:', {
+        console.log('Document update broadcast:', {
           socketId: socket.id,
           userId: socket.data.userId,
           documentId: data.documentId,
