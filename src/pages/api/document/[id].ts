@@ -4,32 +4,93 @@ import { authenticateUser } from '@/server/auth';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 
-// Plate.js content schema (same as create endpoint)
-const plateContentSchema = z.object({
-  type: z.literal('doc'),
-  content: z.array(z.object({
+// Plate.js types
+interface PlateText {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  [key: string]: any; // For other formatting marks
+}
+
+interface PlateElement {
+  type: string;
+  children: (PlateElement | PlateText)[];
+  [key: string]: any; // For other element attributes
+}
+
+interface PlateDocument {
+  type: 'doc';
+  content: PlateElement[];
+}
+
+// Validation schemas
+const plateTextSchema: z.ZodType<PlateText> = z.object({
+  text: z.string(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
+}).passthrough(); // Allow other formatting marks
+
+const plateElementSchema: z.ZodType<PlateElement> = z.lazy(() => 
+  z.object({
     type: z.string(),
-    content: z.array(z.object({
-      type: z.string(),
-      text: z.string().optional(),
-      marks: z.array(z.object({
-        type: z.string()
-      })).optional(),
-      content: z.array(z.any()).optional(),
-    })).optional(),
-  })),
+    children: z.array(z.union([plateElementSchema, plateTextSchema])),
+  }).passthrough() // Allow other element attributes
+);
+
+const plateDocumentSchema: z.ZodType<PlateDocument> = z.object({
+  type: z.literal('doc'),
+  content: z.array(plateElementSchema),
 });
 
 const updateDocumentSchema = z.object({
   title: z.string().optional(),
-  content: plateContentSchema.optional(),
+  content: plateDocumentSchema.optional(),
 });
 
+// Validation helper
+function validatePlateContent(content: unknown): content is PlateDocument {
+  const validateElement = (element: unknown): boolean => {
+    if (element && typeof element === 'object' && 'text' in element) {
+      return typeof (element as PlateText).text === 'string';
+    }
+    
+    if (
+      element && 
+      typeof element === 'object' && 
+      'type' in element && 
+      'children' in element
+    ) {
+      const elem = element as PlateElement;
+      return typeof elem.type === 'string' && 
+             Array.isArray(elem.children) &&
+             elem.children.every(child => validateElement(child));
+    }
+    
+    return false;
+  };
+
+  if (
+    !content || 
+    typeof content !== 'object' || 
+    !('type' in content) || 
+    !('content' in content) || 
+    (content as PlateDocument).type !== 'doc' || 
+    !Array.isArray((content as PlateDocument).content)
+  ) {
+    return false;
+  }
+
+  return (content as PlateDocument).content.every(element => validateElement(element));
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  console.log('[DEBUG] Document GET request received:', {
+  console.log('[DEBUG] Document request received:', {
     method: req.method,
     documentId: req.query.id,
     headers: req.headers,
+    timestamp: new Date().toISOString()
   });
 
   try {
@@ -54,7 +115,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(405).json({ error: 'Method not allowed' });
     }
   } catch (err: unknown) {
-    console.error('Error handling document request:', err);
+    console.error('Error handling document request:', {
+      error: err instanceof Error ? err.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -113,6 +177,11 @@ async function handleUpdate(
 
     // Validate input
     const validatedInput = updateDocumentSchema.parse(body);
+
+    // Additional content validation if present
+    if (validatedInput.content && !validatePlateContent(validatedInput.content)) {
+      return res.status(400).json({ error: 'Invalid content structure' });
+    }
 
     // Check if document exists first
     const documentExists = await db.document.findUnique({
@@ -178,10 +247,11 @@ async function handleUpdate(
       });
 
       // Ensure content structure is preserved exactly as received
-      updateData.content = JSON.parse(JSON.stringify(validatedInput.content));
+      const contentJson = JSON.parse(JSON.stringify(validatedInput.content)) as Prisma.InputJsonValue;
+      updateData.content = contentJson;
       updateData.versions = {
         create: {
-          content: JSON.parse(JSON.stringify(validatedInput.content)),
+          content: contentJson,
           user: { connect: { id: userId } },
         },
       };
