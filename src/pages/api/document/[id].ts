@@ -94,25 +94,67 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   try {
-    // Authenticate user
-    const token = req.headers.authorization?.split(' ')[1];
-    console.log('[DEBUG] Token:', token ? 'Present' : 'Missing');
+    // Check if Authorization header exists
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        code: 'AUTH_REQUIRED',
+        message: 'No authorization header provided'
+      });
+    }
+
+    // Check Bearer token format
+    const token = authHeader.split(' ')[1];
+    if (!token || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        error: 'Invalid authentication format',
+        code: 'INVALID_AUTH_FORMAT',
+        message: 'Authorization header must use Bearer scheme'
+      });
+    }
+
+    console.log('[DEBUG] Token:', 'Present');
     
-    const userId = await authenticateUser(token);
-    console.log('[DEBUG] User authenticated:', userId);
-    
-    const documentId = req.query.id as string;
-    console.log('[DEBUG] Looking up document:', documentId);
-    
-    switch (req.method) {
-      case 'GET':
-        return handleGet(documentId, userId, res);
-      case 'PUT':
-        return handleUpdate(documentId, userId, req.body, res);
-      case 'DELETE':
-        return handleDelete(documentId, userId, res);
-      default:
-        return res.status(405).json({ error: 'Method not allowed' });
+    try {
+      const userId = await authenticateUser(token);
+      console.log('[DEBUG] User authenticated:', userId);
+      
+      const documentId = req.query.id as string;
+      console.log('[DEBUG] Looking up document:', documentId);
+      
+      switch (req.method) {
+        case 'GET':
+          return handleGet(documentId, userId, res);
+        case 'PUT':
+          return handleUpdate(documentId, userId, req.body, res);
+        case 'DELETE':
+          return handleDelete(documentId, userId, res);
+        default:
+          return res.status(405).json({ error: 'Method not allowed' });
+      }
+    } catch (authError) {
+      if (authError instanceof Error) {
+        if (authError.message === 'Token expired') {
+          return res.status(401).json({
+            error: 'Token expired',
+            code: 'TOKEN_EXPIRED',
+            message: 'Authentication token has expired'
+          });
+        }
+        if (authError.message === 'Invalid token') {
+          return res.status(401).json({
+            error: 'Invalid token',
+            code: 'INVALID_TOKEN',
+            message: 'Authentication token is invalid'
+          });
+        }
+      }
+      return res.status(401).json({
+        error: 'Authentication failed',
+        code: 'AUTH_FAILED',
+        message: 'Failed to authenticate user'
+      });
     }
   } catch (err: unknown) {
     console.error('Error handling document request:', {
@@ -162,12 +204,25 @@ async function handleGet(documentId: string, userId: string, res: NextApiRespons
     });
 
     if (!document) {
-      console.log('Document not found:', {
-        documentId,
-        userId,
-        timestamp: new Date().toISOString()
+      // Check if document exists but user doesn't have access
+      const documentExists = await db.document.findUnique({
+        where: { id: documentId },
+        select: { id: true }
       });
-      return res.status(404).json({ error: 'Document not found' });
+
+      if (documentExists) {
+        return res.status(403).json({
+          error: 'Access denied',
+          code: 'ACCESS_DENIED',
+          message: 'You do not have permission to access this document'
+        });
+      }
+
+      return res.status(404).json({
+        error: 'Document not found',
+        code: 'DOCUMENT_NOT_FOUND',
+        message: 'The requested document does not exist'
+      });
     }
 
     // Log the document content for debugging
@@ -253,7 +308,11 @@ async function handleUpdate(
     });
 
     if (!documentExists) {
-      return res.status(404).json({ error: 'Document not found' });
+      return res.status(404).json({
+        error: 'Document not found',
+        code: 'DOCUMENT_NOT_FOUND',
+        message: 'The requested document does not exist'
+      });
     }
 
     // Then check user access
@@ -284,7 +343,11 @@ async function handleUpdate(
     });
 
     if (!userAccess) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({
+        error: 'Access denied',
+        code: 'ACCESS_DENIED',
+        message: 'You do not have permission to modify this document'
+      });
     }
 
     // Create new version if content is updated
@@ -372,6 +435,7 @@ async function handleUpdate(
     if (error instanceof z.ZodError) {
       return res.status(400).json({ 
         error: 'Invalid request data',
+        code: 'INVALID_REQUEST_DATA',
         details: error.errors
       });
     }
@@ -415,12 +479,25 @@ async function handleDelete(documentId: string, userId: string, res: NextApiResp
     });
 
     if (!document) {
-      console.log('Document not found or access denied:', {
-        documentId,
-        userId,
-        timestamp: new Date().toISOString()
+      // Check if document exists but user doesn't have access
+      const documentExists = await db.document.findUnique({
+        where: { id: documentId },
+        select: { id: true }
       });
-      return res.status(404).json({ error: 'Document not found' });
+
+      if (documentExists) {
+        return res.status(403).json({
+          error: 'Access denied',
+          code: 'ACCESS_DENIED',
+          message: 'You do not have permission to delete this document'
+        });
+      }
+
+      return res.status(404).json({
+        error: 'Document not found',
+        code: 'DOCUMENT_NOT_FOUND',
+        message: 'The requested document does not exist'
+      });
     }
 
     // First, delete all relationships
@@ -466,10 +543,18 @@ async function handleDelete(documentId: string, userId: string, res: NextApiResp
     // Check for specific Prisma errors
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2025') {
-        return res.status(404).json({ error: 'Document not found' });
+        return res.status(404).json({
+          error: 'Document not found',
+          code: 'DOCUMENT_NOT_FOUND',
+          message: 'The requested document does not exist'
+        });
       }
       if (error.code === 'P2003') {
-        return res.status(400).json({ error: 'Cannot delete document due to existing references' });
+        return res.status(400).json({
+          error: 'Document in use',
+          code: 'DOCUMENT_IN_USE',
+          message: 'Cannot delete document due to existing references'
+        });
       }
     }
 
