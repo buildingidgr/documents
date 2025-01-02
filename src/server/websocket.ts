@@ -114,17 +114,6 @@ type DocumentSocket = Socket<
   };
 };
 
-// Type guard to validate document content structure
-function isPlateDocument(content: unknown): content is PlateDocument {
-  const doc = content as PlateDocument;
-  return (
-    doc &&
-    typeof doc === 'object' &&
-    doc.type === 'doc' &&
-    Array.isArray(doc.content)
-  );
-}
-
 export function setupWebSocket(server: HttpServer) {
   console.log('Setting up Socket.IO server...');
 
@@ -461,93 +450,40 @@ export function setupWebSocket(server: HttpServer) {
           throw new Error('Invalid content structure');
         }
 
+        // Validate content elements
+        const validateElement = (element: PlateElement | PlateText): boolean => {
+          if ('text' in element) {
+            // Text node validation
+            return typeof element.text === 'string';
+          }
+          
+          // Element node validation
+          if (!element.type || !Array.isArray(element.children)) {
+            return false;
+          }
+          
+          // Recursively validate children
+          return element.children.every(child => validateElement(child));
+        };
+
+        const isValid = data.data.content.content.every(element => validateElement(element));
+        if (!isValid) {
+          throw new Error('Invalid content structure');
+        }
+
         // Set userId from authenticated socket
         data.userId = socket.data.userId!;
 
-        try {
-          // First, get the current document content
-          const currentDocument = await db.document.findUnique({
-            where: { id: data.documentId },
-            select: { content: true }
-          });
+        // Broadcast the update to others in the document
+        socket.to(data.documentId).emit('document:update', data);
 
-          if (!currentDocument) {
-            throw new Error('Document not found');
-          }
-
-          // Ensure current content has valid structure
-          const currentContent = currentDocument.content;
-          if (!isPlateDocument(currentContent)) {
-            throw new Error('Invalid current document content structure');
-          }
-
-          const updateContent = data.data.content;
-
-          // If the update contains content array, merge it with existing content
-          if (updateContent.content && Array.isArray(updateContent.content)) {
-            // Find matching elements by id and update them, or append new ones
-            const mergedContent: PlateDocument = {
-              type: 'doc',
-              content: currentContent.content.map(existingElement => {
-                const updateElement = updateContent.content.find(
-                  newElement => 'id' in newElement && 'id' in existingElement && newElement.id === existingElement.id
-                );
-                return updateElement || existingElement;
-              })
-            };
-
-            // Add any new elements that don't exist in the current content
-            updateContent.content.forEach(newElement => {
-              if (
-                'id' in newElement && 
-                !mergedContent.content.some(
-                  element => 'id' in element && element.id === newElement.id
-                )
-              ) {
-                mergedContent.content.push(newElement);
-              }
-            });
-
-            // Convert to Prisma JSON value
-            const contentForDb = JSON.parse(JSON.stringify(mergedContent)) as Prisma.InputJsonValue;
-
-            // Update the document with merged content
-            await db.document.update({
-              where: { id: data.documentId },
-              data: {
-                content: contentForDb,
-                versions: {
-                  create: {
-                    content: contentForDb,
-                    user: { connect: { id: data.userId } }
-                  }
-                }
-              }
-            });
-
-            console.log('Document updated successfully:', {
-              documentId: data.documentId,
-              userId: data.userId,
-              timestamp: new Date().toISOString()
-            });
-          }
-
-          // Broadcast the update to others in the document
-          socket.to(data.documentId).emit('document:update', data);
-
-        } catch (dbError) {
-          console.error('Database error during document update:', {
-            error: dbError instanceof Error ? {
-              message: dbError.message,
-              name: dbError.name,
-              stack: dbError.stack
-            } : 'Unknown error',
-            documentId: data.documentId,
-            userId: data.userId,
-            timestamp: new Date().toISOString()
-          });
-          socket.emit('error', { message: 'Failed to update document in database' });
-        }
+        console.log('Document update broadcast:', {
+          socketId: socket.id,
+          userId: socket.data.userId,
+          documentId: data.documentId,
+          type: data.type,
+          timestamp: new Date().toISOString()
+        });
       } catch (error) {
         console.error('Error updating document:', {
           socketId: socket.id,
