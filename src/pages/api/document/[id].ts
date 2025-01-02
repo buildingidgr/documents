@@ -291,13 +291,19 @@ async function handleUpdate(
 
     // Additional content validation if present
     if (validatedInput.content && !validatePlateContent(validatedInput.content)) {
-      return res.status(400).json({ error: 'Invalid content structure' });
+      return res.status(400).json({
+        error: 'Invalid content structure',
+        code: 'INVALID_CONTENT',
+        message: 'The provided content structure is invalid'
+      });
     }
 
     // Check if document exists first
     const documentExists = await db.document.findUnique({
-      where: {
-        id: documentId
+      where: { id: documentId },
+      select: { 
+        id: true,
+        content: true
       }
     });
 
@@ -350,7 +356,7 @@ async function handleUpdate(
       });
     }
 
-    // Create new version if content is updated
+    // Create update data object
     const updateData: Prisma.DocumentUpdateInput = {
       ...(validatedInput.title && { title: validatedInput.title }),
       users: {
@@ -365,19 +371,54 @@ async function handleUpdate(
         timestamp: new Date().toISOString()
       });
 
-      // Ensure content structure is preserved exactly as received
-      const contentJson = JSON.parse(JSON.stringify(validatedInput.content)) as Prisma.InputJsonValue;
-      updateData.content = contentJson;
+      // Ensure current content has valid structure
+      const currentContent = documentExists.content;
+      if (!validatePlateContent(currentContent)) {
+        return res.status(500).json({
+          error: 'Invalid document content',
+          code: 'INVALID_DOCUMENT_CONTENT',
+          message: 'The current document content structure is invalid'
+        });
+      }
+
+      // Merge the content update
+      const mergedContent: PlateDocument = {
+        type: 'doc',
+        content: currentContent.content.map(existingElement => {
+          const updateElement = validatedInput.content!.content.find(
+            newElement => 'id' in newElement && 'id' in existingElement && newElement.id === existingElement.id
+          );
+          return updateElement || existingElement;
+        })
+      };
+
+      // Add any new elements that don't exist in the current content
+      validatedInput.content.content.forEach(newElement => {
+        if (
+          'id' in newElement && 
+          !mergedContent.content.some(
+            element => 'id' in element && element.id === newElement.id
+          )
+        ) {
+          mergedContent.content.push(newElement);
+        }
+      });
+
+      // Convert to Prisma JSON value
+      const contentForDb = JSON.parse(JSON.stringify(mergedContent)) as Prisma.InputJsonValue;
+
+      // Add content and version to update data
+      updateData.content = contentForDb;
       updateData.versions = {
         create: {
-          content: contentJson,
-          user: { connect: { id: userId } },
-        },
+          content: contentForDb,
+          user: { connect: { id: userId } }
+        }
       };
 
       console.log('Content after processing:', {
         documentId,
-        content: updateData.content,
+        hasContent: true,
         timestamp: new Date().toISOString()
       });
     }
@@ -442,11 +483,19 @@ async function handleUpdate(
 
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2025') {
-        return res.status(404).json({ error: 'Document not found' });
+        return res.status(404).json({
+          error: 'Document not found',
+          code: 'DOCUMENT_NOT_FOUND',
+          message: 'The requested document does not exist'
+        });
       }
     }
 
-    return res.status(500).json({ error: 'Failed to update document' });
+    return res.status(500).json({
+      error: 'Failed to update document',
+      code: 'UPDATE_FAILED',
+      message: 'An error occurred while updating the document'
+    });
   }
 }
 
