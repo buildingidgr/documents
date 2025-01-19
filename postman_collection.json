@@ -208,15 +208,15 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/uploadthing/core",
+              "raw": "{{base_url}}/api/uploadthing",
               "host": ["{{base_url}}"],
-              "path": ["api", "uploadthing", "core"]
+              "path": ["api", "uploadthing"]
             },
             "body": {
               "mode": "formdata",
               "formdata": [
                 {
-                  "key": "fileUploader",
+                  "key": "file",
                   "type": "file",
                   "src": []
                 }
