@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { db } from '@/server/db';
 import { authenticateUser } from '@/server/auth';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 
 // Validate query parameters
 const querySchema = z.object({
@@ -51,14 +52,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const { page, limit, type, status, search } = querySchema.parse(req.query);
 
         // Build where clause
-        const where = {
+        const where: Prisma.FileWhereInput = {
           userId,
           ...(type && { type }),
           ...(status && { status }),
           ...(search && {
             OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { type: { contains: search, mode: 'insensitive' } }
+              {
+                name: {
+                  contains: search,
+                  mode: Prisma.QueryMode.insensitive
+                }
+              },
+              {
+                type: {
+                  contains: search,
+                  mode: Prisma.QueryMode.insensitive
+                }
+              }
             ]
           })
         };
