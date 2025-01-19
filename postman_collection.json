@@ -205,17 +205,12 @@
                 "key": "Authorization",
                 "value": "Bearer {{token}}",
                 "type": "text"
-              },
-              {
-                "key": "Content-Type",
-                "value": "multipart/form-data",
-                "type": "text"
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/uploadthing/upload",
+              "raw": "{{base_url}}/api/uploadthing",
               "host": ["{{base_url}}"],
-              "path": ["api", "uploadthing", "upload"]
+              "path": ["api", "uploadthing"]
             },
             "body": {
               "mode": "formdata",
