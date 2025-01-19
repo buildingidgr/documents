@@ -39,4 +39,6 @@ max_connection_age = 600
 max_connection_age_grace = 60
 
 [env]
+NODE_ENV = "production"
+PORT = "8080"
 DEBUG = "socket.io:*"

@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "ts-node --project tsconfig.server.json src/server/index.ts",
-    "build": "prisma generate && next build && tsc -p tsconfig.server.json",
-    "start": "NODE_ENV=production node -r source-map-support/register dist/server/index.js",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
     "lint": "next lint",
     "postinstall": "prisma generate",
     "db:deploy": "prisma migrate deploy",
+    "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "clean": "rm -rf dist"
@@ -20,6 +21,7 @@
     "@trpc/next": "^10.45.0",
     "@trpc/react-query": "^10.45.0",
     "@trpc/server": "^10.45.0",
+    "@uploadthing/react": "7.1.5",
     "express": "^4.18.2",
     "next": "13.5.6",
     "prisma": "^5.8.0",
@@ -32,6 +34,7 @@
     "superjson": "^2.2.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
+    "uploadthing": "7.4.4",
     "ws": "^8.16.0",
     "zod": "^3.22.4"
   },
