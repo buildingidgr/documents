@@ -1,0 +1,316 @@
+{
+  "info": {
+    "name": "Documents API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Documents",
+      "item": [
+        {
+          "name": "List Documents",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/documents?limit=10&cursor=&orderBy=updatedAt&order=desc",
+              "host": ["{{base_url}}"],
+              "path": ["api", "documents"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "key": "orderBy",
+                  "value": "updatedAt"
+                },
+                {
+                  "key": "order",
+                  "value": "desc"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Document",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/document/create",
+              "host": ["{{base_url}}"],
+              "path": ["api", "document", "create"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"New Document\",\n  \"content\": {\n    \"type\": \"doc\",\n    \"content\": [\n      {\n        \"type\": \"paragraph\",\n        \"children\": [{ \"text\": \"Hello World\" }]\n      }\n    ]\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Document",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/document/{{documentId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "document", "{{documentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Document",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/document/{{documentId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "document", "{{documentId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Document\",\n  \"content\": {\n    \"type\": \"doc\",\n    \"content\": [\n      {\n        \"type\": \"paragraph\",\n        \"children\": [{ \"text\": \"Updated content\" }]\n      }\n    ]\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Document",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/document/{{documentId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "document", "{{documentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Document Versions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/document/{{documentId}}/versions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "document", "{{documentId}}", "versions"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Files",
+      "item": [
+        {
+          "name": "List Files",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/files?page=1&limit=10&type=&status=&search=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "files"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "type",
+                  "value": ""
+                },
+                {
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "key": "search",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Upload File",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/uploadthing/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "uploadthing", "upload"]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get File",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/files/{{fileId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "files", "{{fileId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update File",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/files/{{fileId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "files", "{{fileId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated File Name\",\n  \"metadata\": {\n    \"fileType\": \"pdf\",\n    \"description\": \"Updated description\"\n  },\n  \"status\": \"approved\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete File",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/files/{{fileId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "files", "{{fileId}}"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "token",
+      "value": "your_auth_token_here"
+    },
+    {
+      "key": "documentId",
+      "value": "your_document_id_here"
+    },
+    {
+      "key": "fileId",
+      "value": "your_file_id_here"
+    }
+  ]
+} 
