@@ -19,20 +19,21 @@ model Document {
   @@index([createdAt])
   @@index([updatedAt])
   @@index([title])
+  @@index([updatedAt, title])
 }
 
 model Version {
   id         String   @id @default(cuid())
   content    Json
   createdAt  DateTime @default(now())
-  document   Document @relation(fields: [documentId], references: [id])
   documentId String
-  user       User     @relation(fields: [userId], references: [id])
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   userId     String
+  user       User     @relation(fields: [userId], references: [id])
 
-  @@index([createdAt])
   @@index([documentId])
   @@index([userId])
+  @@index([createdAt])
   @@index([documentId, createdAt])
 }
 
