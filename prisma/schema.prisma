@@ -47,19 +47,25 @@ model User {
   @@index([name])
 }
 
+enum FileStatus {
+  pending
+  approved
+  rejected
+}
+
 model File {
-  id         String   @id @default(cuid())
+  id         String     @id @default(cuid())
   userId     String
   name       String
   type       String
   size       Int
   url        String
   key        String
-  status     String   @default("pending")
-  uploadedAt DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  status     FileStatus @default(pending)
+  uploadedAt DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
   metadata   Json
-  user       User     @relation(fields: [userId], references: [id])
+  user       User       @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([status])

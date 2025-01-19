@@ -2,6 +2,7 @@ import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { authenticateUser } from "./auth";
 import { db } from "./db";
 import type { NextApiRequest } from "next";
+import { FileStatus } from "@prisma/client";
 
 const f = createUploadthing();
 
@@ -56,7 +57,7 @@ export const ourFileRouter = {
             size: file.size,
             url: file.url,
             key: file.key,
-            status: 'pending',
+            status: FileStatus.pending,
             metadata: {
               fileType: file.type,
               description: '',

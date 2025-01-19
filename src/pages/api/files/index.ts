@@ -2,14 +2,14 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { db } from '@/server/db';
 import { authenticateUser } from '@/server/auth';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
+import { FileStatus, Prisma } from '@prisma/client';
 
 // Validate query parameters
 const querySchema = z.object({
   page: z.string().optional().transform(val => val ? parseInt(val, 10) : 1),
   limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 10),
   type: z.string().optional(),
-  status: z.string().optional(),
+  status: z.nativeEnum(FileStatus).optional(),
   search: z.string().optional()
 });
 
