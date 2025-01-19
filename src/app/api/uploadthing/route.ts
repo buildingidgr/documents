@@ -1,6 +1,20 @@
 import { createRouteHandler } from "uploadthing/next";
 import { ourFileRouter } from "@/server/uploadthing";
+import { NextRequest } from "next/server";
 
-export const { GET, POST } = createRouteHandler({
+console.log("UploadThing route handler module loaded");
+
+const handler = createRouteHandler({
   router: ourFileRouter,
-}); 
+});
+
+export const GET = async (req: NextRequest) => {
+  console.log("GET request received at /api/uploadthing");
+  return handler.GET(req);
+};
+
+export const POST = async (req: NextRequest) => {
+  console.log("POST request received at /api/uploadthing");
+  console.log("Request headers:", Object.fromEntries(req.headers.entries()));
+  return handler.POST(req);
+}; 
