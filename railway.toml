@@ -1,9 +1,9 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm install && npm run build"
+buildCommand = "npm install && npx prisma generate && npm run build"
 
 [deploy]
-startCommand = "npm run db:deploy && npm start"
+startCommand = "npx prisma migrate deploy && npm start"
 healthcheckPath = "/api/healthcheck"
 healthcheckTimeout = 180
 healthcheckInterval = 10
@@ -43,8 +43,10 @@ NODE_ENV = "production"
 PORT = "8080"
 DEBUG = "socket.io:*"
 
-# Required environment variables that need to be set in Railway dashboard
-# DATABASE_URL - PostgreSQL connection string
-# UPLOADTHING_SECRET - UploadThing secret key
-# UPLOADTHING_APP_ID - UploadThing app ID
-# AUTH_SERVICE_URL - Authentication service URL
+# Required environment variables that need to be set in Railway dashboard:
+# DATABASE_URL - PostgreSQL connection string (provided by Railway PostgreSQL plugin)
+# UPLOADTHING_SECRET - Your UploadThing secret key
+# UPLOADTHING_APP_ID - Your UploadThing app ID
+# AUTH_SERVICE_URL - Your authentication service URL
+# NEXTAUTH_URL - Your application URL (provided by Railway)
+# NEXTAUTH_SECRET - Random string for session encryption
