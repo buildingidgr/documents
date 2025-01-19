@@ -2,7 +2,7 @@ import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { authenticateUser } from "./auth";
 import { db } from "./db";
 import type { NextApiRequest } from "next";
-import { FileStatus } from "@prisma/client";
+import type { FileStatus } from "@prisma/client";
 
 const f = createUploadthing();
 
@@ -16,7 +16,9 @@ const allowedFileTypes = {
 
 // Define middleware request type
 type UploadThingRequest = {
-  headers: NextApiRequest["headers"];
+  headers: {
+    get(name: string): string | null;
+  };
 };
 
 // Define completion type
@@ -36,7 +38,7 @@ type UploadThingComplete = {
 export const ourFileRouter = {
   fileUploader: f(allowedFileTypes)
     .middleware(async ({ req }) => {
-      const authHeader = req.headers.authorization;
+      const authHeader = req.headers.get("authorization");
       if (!authHeader) throw new Error("Unauthorized");
 
       const token = authHeader.split(' ')[1];
@@ -57,7 +59,7 @@ export const ourFileRouter = {
             size: file.size,
             url: file.url,
             key: file.key,
-            status: FileStatus.pending,
+            status: "pending" as FileStatus,
             metadata: {
               fileType: file.type,
               description: '',

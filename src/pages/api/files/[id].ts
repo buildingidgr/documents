@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { db } from '@/server/db';
 import { authenticateUser } from '@/server/auth';
 import { z } from 'zod';
-import { FileStatus, Prisma } from '@prisma/client';
+import type { FileStatus } from '@prisma/client';
 import { UTApi } from "uploadthing/server";
 
 const utapi = new UTApi();
@@ -23,8 +23,13 @@ const updateFileSchema = z.object({
     fileType: z.string().optional(),
     description: z.string().optional(),
   }).optional(),
-  status: z.nativeEnum(FileStatus).optional(),
-});
+  status: z.enum(['pending', 'approved', 'rejected']).optional(),
+}).transform(data => ({
+  ...data,
+  status: data.status as FileStatus | undefined
+}));
+
+type UpdateFileInput = z.infer<typeof updateFileSchema>;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
