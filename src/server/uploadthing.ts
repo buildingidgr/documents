@@ -12,15 +12,13 @@ const allowedFileTypes = {
   // Custom file types will be handled through mime type checks
 } as const;
 
-interface UploadMiddleware {
-  req: {
-    headers: {
-      authorization?: string;
-    };
-  };
-}
+// Define middleware request type
+type UploadThingRequest = {
+  headers: Record<string, string | undefined>;
+};
 
-interface UploadComplete {
+// Define completion type
+type UploadThingComplete = {
   metadata: {
     userId: string;
   };
@@ -31,12 +29,12 @@ interface UploadComplete {
     url: string;
     key: string;
   };
-}
+};
 
 export const ourFileRouter = {
   fileUploader: f(allowedFileTypes)
-    .middleware(async ({ req }: UploadMiddleware) => {
-      const authHeader = req.headers.authorization;
+    .middleware(async ({ req }) => {
+      const authHeader = req.headers["authorization"];
       if (!authHeader) throw new Error("Unauthorized");
 
       const token = authHeader.split(' ')[1];
@@ -47,7 +45,7 @@ export const ourFileRouter = {
 
       return { userId };
     })
-    .onUploadComplete(async ({ metadata, file }: UploadComplete) => {
+    .onUploadComplete(async ({ metadata, file }) => {
       await db.$transaction(async (tx) => {
         await tx.file.create({
           data: {

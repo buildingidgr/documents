@@ -7,6 +7,13 @@ import { UTApi } from "uploadthing/server";
 
 const utapi = new UTApi();
 
+// Define metadata type
+interface FileMetadata {
+  fileType: string;
+  description: string;
+  version: number;
+}
+
 // Validation schemas
 const updateFileSchema = z.object({
   name: z.string().optional(),
@@ -132,15 +139,20 @@ async function handleUpdate(
       });
     }
 
+    // Parse existing metadata
+    const currentMetadata = file.metadata as FileMetadata;
+
     // Update file
     const updatedFile = await db.file.update({
       where: { id: fileId },
       data: {
-        ...validatedInput,
+        ...(validatedInput.name && { name: validatedInput.name }),
+        ...(validatedInput.status && { status: validatedInput.status }),
         ...(validatedInput.metadata && {
           metadata: {
-            ...file.metadata,
-            ...validatedInput.metadata
+            fileType: validatedInput.metadata.fileType ?? currentMetadata.fileType,
+            description: validatedInput.metadata.description ?? currentMetadata.description,
+            version: currentMetadata.version
           }
         })
       }

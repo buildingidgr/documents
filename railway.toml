@@ -42,3 +42,9 @@ max_connection_age_grace = 60
 NODE_ENV = "production"
 PORT = "8080"
 DEBUG = "socket.io:*"
+
+# Required environment variables that need to be set in Railway dashboard
+# DATABASE_URL - PostgreSQL connection string
+# UPLOADTHING_SECRET - UploadThing secret key
+# UPLOADTHING_APP_ID - UploadThing app ID
+# AUTH_SERVICE_URL - Authentication service URL
