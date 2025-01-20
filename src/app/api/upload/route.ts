@@ -37,37 +37,41 @@ export const POST = async (req: NextRequest) => {
     const fileId = randomUUID();
     const key = `${userId}/${fileId}/${fileName}`;
 
-    // Get presigned URL
-    const { url, fields } = await createPresignedUploadUrl(key, fileType);
-
-    // Construct the final S3 URL
-    const s3Url = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
-
-    // Create file record in database
-    const file = await db.file.create({
-      data: {
-        id: fileId,
-        userId,
-        name: fileName,
-        type: fileType,
-        size: fileSize,
-        key,
-        url: s3Url,
-        status: "pending" as FileStatus,
-        metadata: {
-          fileType,
-          description: '',
-          version: 1
+    try {
+      // Get presigned URL
+      const presignedData = await createPresignedUploadUrl(key, fileType);
+      
+      // Create file record in database
+      const file = await db.file.create({
+        data: {
+          id: fileId,
+          userId,
+          name: fileName,
+          type: fileType,
+          size: fileSize,
+          key,
+          url: `https://${presignedData.bucket}.s3.${presignedData.region}.amazonaws.com/${key}`,
+          status: "pending" as FileStatus,
+          metadata: {
+            fileType,
+            description: '',
+            version: 1
+          }
         }
-      }
-    });
+      });
 
-    return NextResponse.json({
-      fileId: file.id,
-      uploadUrl: url,
-      fields
-    });
-
+      return NextResponse.json({
+        fileId: file.id,
+        uploadUrl: presignedData.url,
+        fields: presignedData.fields
+      });
+    } catch (error) {
+      console.error("Error with S3 or database:", error);
+      return NextResponse.json(
+        { error: "Failed to prepare upload" },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error("Error handling upload request:", error);
     return NextResponse.json(
