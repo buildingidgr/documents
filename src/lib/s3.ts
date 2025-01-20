@@ -99,7 +99,9 @@ export async function createPresignedUploadUrl(key: string, contentType: string)
     return {
       url,
       fields,
-      key
+      key,
+      bucket: config.bucketName,
+      region: config.region
     };
   } catch (error) {
     console.error('Error creating presigned URL:', error);
