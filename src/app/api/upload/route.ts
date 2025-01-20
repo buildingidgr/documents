@@ -3,6 +3,7 @@ import { createPresignedUploadUrl } from '@/lib/s3';
 import { authenticateUser } from '@/server/auth';
 import { db } from '@/server/db';
 import { randomUUID } from 'crypto';
+import type { FileStatus } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
   console.log("\n=== UPLOAD REQUEST STARTED ===");
@@ -39,6 +40,9 @@ export async function POST(req: NextRequest) {
     // Get presigned URL
     const { url, fields } = await createPresignedUploadUrl(key, fileType);
 
+    // Construct the final S3 URL
+    const s3Url = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+
     // Create file record in database
     const file = await db.file.create({
       data: {
@@ -48,7 +52,8 @@ export async function POST(req: NextRequest) {
         type: fileType,
         size: fileSize,
         key,
-        status: "pending",
+        url: s3Url,
+        status: "pending" as FileStatus,
         metadata: {
           fileType,
           description: '',
