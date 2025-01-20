@@ -5,7 +5,7 @@ import { db } from '@/server/db';
 import { randomUUID } from 'crypto';
 import type { FileStatus } from '@prisma/client';
 
-export async function POST(req: NextRequest) {
+export const POST = async (req: NextRequest) => {
   console.log("\n=== UPLOAD REQUEST STARTED ===");
   
   try {
