@@ -208,25 +208,72 @@ async function handleDelete(fileId: string, userId: string, res: NextApiResponse
     }
 
     // Delete file from S3
-    const s3Client = getS3Client();
-    const bucketName = process.env.AWS_BUCKET_NAME;
-    if (!bucketName) {
-      throw new Error('AWS_BUCKET_NAME is not set');
+    try {
+      const s3Client = getS3Client();
+      const bucketName = process.env.AWS_BUCKET_NAME;
+      if (!bucketName) {
+        throw new Error('AWS_BUCKET_NAME is not set');
+      }
+
+      await s3Client.send(new DeleteObjectCommand({
+        Bucket: bucketName,
+        Key: file.key
+      }));
+
+      console.log('Successfully deleted file from S3:', {
+        bucket: bucketName,
+        key: file.key,
+        fileId: file.id,
+        timestamp: new Date().toISOString()
+      });
+    } catch (s3Error) {
+      console.error('Error deleting file from S3:', {
+        error: s3Error instanceof Error ? s3Error.message : 'Unknown error',
+        fileId: file.id,
+        key: file.key,
+        timestamp: new Date().toISOString()
+      });
+      return res.status(500).json({
+        error: 'Failed to delete file from storage',
+        code: 'S3_DELETE_FAILED',
+        message: 'Failed to delete file from storage service'
+      });
     }
 
-    await s3Client.send(new DeleteObjectCommand({
-      Bucket: bucketName,
-      Key: file.key
-    }));
-
     // Delete file from database
-    await db.file.delete({
-      where: { id: fileId }
-    });
+    try {
+      await db.file.delete({
+        where: { id: fileId }
+      });
 
-    return res.status(204).end();
+      console.log('Successfully deleted file record:', {
+        fileId: file.id,
+        timestamp: new Date().toISOString()
+      });
+
+      return res.status(204).end();
+    } catch (dbError) {
+      console.error('Error deleting file from database:', {
+        error: dbError instanceof Error ? dbError.message : 'Unknown error',
+        fileId: file.id,
+        timestamp: new Date().toISOString()
+      });
+      return res.status(500).json({
+        error: 'Failed to delete file record',
+        code: 'DB_DELETE_FAILED',
+        message: 'Failed to delete file record from database'
+      });
+    }
   } catch (error) {
-    console.error('Error deleting file:', error);
-    return res.status(500).json({ error: 'Failed to delete file' });
+    console.error('Error handling delete request:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      fileId,
+      timestamp: new Date().toISOString()
+    });
+    return res.status(500).json({
+      error: 'Internal server error',
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred while deleting the file'
+    });
   }
 } 

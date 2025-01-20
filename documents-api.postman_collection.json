@@ -136,12 +136,48 @@
                   "type": "text"
                 },
                 {
+                  "key": "bucket",
+                  "value": "{{bucket}}",
+                  "type": "text"
+                },
+                {
+                  "key": "X-Amz-Algorithm",
+                  "value": "{{x_amz_algorithm}}",
+                  "type": "text"
+                },
+                {
+                  "key": "X-Amz-Credential",
+                  "value": "{{x_amz_credential}}",
+                  "type": "text"
+                },
+                {
+                  "key": "X-Amz-Date",
+                  "value": "{{x_amz_date}}",
+                  "type": "text"
+                },
+                {
+                  "key": "key",
+                  "value": "{{file_key}}",
+                  "type": "text"
+                },
+                {
+                  "key": "Policy",
+                  "value": "{{policy}}",
+                  "type": "text"
+                },
+                {
+                  "key": "X-Amz-Signature",
+                  "value": "{{x_amz_signature}}",
+                  "type": "text"
+                },
+                {
                   "key": "file",
                   "type": "file",
                   "src": []
                 }
               ]
-            }
+            },
+            "description": "Example response from Get Upload URL:\n{\n    \"fileId\": \"1a240f25-ab6f-4f12-8f51-e060d3ba4998\",\n    \"uploadUrl\": \"https://mechlabs.s3.eu-north-1.amazonaws.com/\",\n    \"fields\": {\n        \"Content-Type\": \"application/pdf\",\n        \"bucket\": \"mechlabs\",\n        \"X-Amz-Algorithm\": \"AWS4-HMAC-SHA256\",\n        \"X-Amz-Credential\": \"AKIAQ4NSBOTYKXLKUBDH/20250120/eu-north-1/s3/aws4_request\",\n        \"X-Amz-Date\": \"20250120T175208Z\",\n        \"key\": \"user_2prIb6NUsyTjopaWeWDjFW8jdGY/1a240f25-ab6f-4f12-8f51-e060d3ba4998/zenith.pdf\",\n        \"Policy\": \"...\",\n        \"X-Amz-Signature\": \"...\"\n    }\n}"
           }
         },
         {
@@ -179,6 +215,25 @@
               "path": ["api", "files", "{{fileId}}"]
             }
           }
+        },
+        {
+          "name": "Delete File",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/files/{{fileId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "files", "{{fileId}}"]
+            },
+            "description": "Deletes a file from both S3 and the database.\nRequires:\n- fileId: The ID of the file to delete\n- Authorization: Bearer token\n\nReturns:\n- 204: File successfully deleted\n- 404: File not found\n- 500: Error deleting file"
+          }
         }
       ]
     }
@@ -207,6 +262,34 @@
     {
       "key": "content_type",
       "value": "application/pdf"
+    },
+    {
+      "key": "bucket",
+      "value": "your-bucket-name"
+    },
+    {
+      "key": "x_amz_algorithm",
+      "value": "AWS4-HMAC-SHA256"
+    },
+    {
+      "key": "x_amz_credential",
+      "value": "your-credential-here"
+    },
+    {
+      "key": "x_amz_date",
+      "value": "YYYYMMDDTHHMMSSZ"
+    },
+    {
+      "key": "file_key",
+      "value": "your-file-key-here"
+    },
+    {
+      "key": "policy",
+      "value": "your-policy-here"
+    },
+    {
+      "key": "x_amz_signature",
+      "value": "your-signature-here"
     }
   ]
 } 
