@@ -29,7 +29,9 @@ export const POST = async (req: NextRequest) => {
     try {
       const formData = await clone.formData();
       console.log("Form data keys:", Array.from(formData.keys()));
-      for (const [key, value] of formData.entries()) {
+      
+      // Use Array.from to convert FormData entries to array before iteration
+      Array.from(formData.entries()).forEach(([key, value]) => {
         if (value instanceof File) {
           console.log(`Form data ${key}:`, {
             name: value.name,
@@ -39,7 +41,7 @@ export const POST = async (req: NextRequest) => {
         } else {
           console.log(`Form data ${key}:`, value);
         }
-      }
+      });
     } catch (e2) {
       console.log("Could not parse request body");
     }
