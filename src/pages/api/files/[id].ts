@@ -3,9 +3,8 @@ import { db } from '@/server/db';
 import { authenticateUser } from '@/server/auth';
 import { z } from 'zod';
 import type { FileStatus } from '@prisma/client';
-import { UTApi } from "uploadthing/server";
-
-const utapi = new UTApi();
+import { getS3Client } from '@/lib/s3';
+import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 // Define metadata schema
 const fileMetadataSchema = z.object({
@@ -208,8 +207,17 @@ async function handleDelete(fileId: string, userId: string, res: NextApiResponse
       });
     }
 
-    // Delete file from UploadThing
-    await utapi.deleteFiles(file.key);
+    // Delete file from S3
+    const s3Client = getS3Client();
+    const bucketName = process.env.AWS_BUCKET_NAME;
+    if (!bucketName) {
+      throw new Error('AWS_BUCKET_NAME is not set');
+    }
+
+    await s3Client.send(new DeleteObjectCommand({
+      Bucket: bucketName,
+      Key: file.key
+    }));
 
     // Delete file from database
     await db.file.delete({
