@@ -45,8 +45,10 @@ DEBUG = "socket.io:*"
 
 # Required environment variables that need to be set in Railway dashboard:
 # DATABASE_URL - PostgreSQL connection string (provided by Railway PostgreSQL plugin)
-# UPLOADTHING_SECRET - Your UploadThing secret key
-# UPLOADTHING_APP_ID - Your UploadThing app ID
 # AUTH_SERVICE_URL - Your authentication service URL
 # NEXTAUTH_URL - Your application URL (provided by Railway)
 # NEXTAUTH_SECRET - Random string for session encryption
+# AWS_ACCESS_KEY_ID - Your AWS access key ID
+# AWS_SECRET_ACCESS_KEY - Your AWS secret access key
+# AWS_BUCKET_NAME - Your S3 bucket name
+# AWS_REGION - Your AWS region
