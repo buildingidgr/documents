@@ -78,8 +78,8 @@ export async function createPresignedUploadUrl(key: string, contentType: string)
     }
     
     // Validate content type
-    if (!contentType.match(/^(application\/pdf|image\/.*|text\/.*)$/)) {
-      throw new Error('Invalid content type. Must be PDF, image, or text.');
+    if (!contentType.match(/^(application\/pdf|image\/.*|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|application\/msword|application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|application\/vnd\.ms-excel|application\/x-dxf|application\/x-dwg)$/)) {
+      throw new Error('Invalid content type. Must be one of: PDF, DWG, DXF, DOC, DOCX, XLS, XLSX, or image files.');
     }
 
     const s3 = getS3Client();
