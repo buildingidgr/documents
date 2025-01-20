@@ -4,6 +4,9 @@ import { authenticateUser } from '@/server/auth';
 import { z } from 'zod';
 import type { FileStatus } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { getS3Client } from '@/lib/s3';
 
 // Validate query parameters
 const querySchema = z.object({
@@ -98,6 +101,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               type: true,
               size: true,
               url: true,
+              key: true,
               status: true,
               uploadedAt: true,
               updatedAt: true,
@@ -107,13 +111,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           db.file.count({ where })
         ]);
 
+        // Generate presigned URLs for all files
+        const s3Client = getS3Client();
+        const bucketName = process.env.AWS_BUCKET_NAME;
+        if (!bucketName) {
+          throw new Error('AWS_BUCKET_NAME is not set');
+        }
+
+        const filesWithPresignedUrls = await Promise.all(
+          files.map(async (file) => {
+            try {
+              const command = new GetObjectCommand({
+                Bucket: bucketName,
+                Key: file.key,
+                ResponseContentDisposition: 'inline'
+              });
+
+              const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+              return {
+                ...file,
+                url: presignedUrl
+              };
+            } catch (error) {
+              console.error('Error generating presigned URL for file:', {
+                fileId: file.id,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              });
+              return file;
+            }
+          })
+        );
+
         // Calculate pagination metadata
         const totalPages = Math.ceil(total / limit);
         const hasMore = page < totalPages;
 
         // Return paginated results with metadata
         return res.status(200).json({
-          files,
+          files: filesWithPresignedUrls,
           pagination: {
             total,
             page,

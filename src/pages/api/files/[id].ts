@@ -4,7 +4,8 @@ import { authenticateUser } from '@/server/auth';
 import { z } from 'zod';
 import type { FileStatus } from '@prisma/client';
 import { getS3Client } from '@/lib/s3';
-import { DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // Define metadata schema
 const fileMetadataSchema = z.object({
@@ -112,7 +113,39 @@ async function handleGet(fileId: string, userId: string, res: NextApiResponse) {
       });
     }
 
-    return res.status(200).json(file);
+    // Generate presigned URL
+    try {
+      const s3Client = getS3Client();
+      const bucketName = process.env.AWS_BUCKET_NAME;
+      if (!bucketName) {
+        throw new Error('AWS_BUCKET_NAME is not set');
+      }
+
+      const command = new GetObjectCommand({
+        Bucket: bucketName,
+        Key: file.key,
+        ResponseContentDisposition: 'inline'
+      });
+
+      const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL expires in 1 hour
+
+      return res.status(200).json({
+        ...file,
+        url: presignedUrl
+      });
+    } catch (s3Error) {
+      console.error('Error generating presigned URL:', {
+        error: s3Error instanceof Error ? s3Error.message : 'Unknown error',
+        fileId: file.id,
+        key: file.key,
+        timestamp: new Date().toISOString()
+      });
+      return res.status(500).json({
+        error: 'Failed to generate file access URL',
+        code: 'PRESIGNED_URL_FAILED',
+        message: 'Failed to generate file access URL'
+      });
+    }
   } catch (error) {
     console.error('Error fetching file:', error);
     return res.status(500).json({ error: 'Failed to fetch file' });
