@@ -181,6 +181,25 @@
           }
         },
         {
+          "name": "Complete Upload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/files/{{fileId}}/complete",
+              "host": ["{{base_url}}"],
+              "path": ["api", "files", "{{fileId}}", "complete"]
+            },
+            "description": "Mark a file upload as complete after successful S3 upload.\nRequires:\n- fileId: The ID of the file to mark as complete\n- Authorization: Bearer token\n\nReturns:\n- 200: File object with updated status\n- 404: File not found\n- 500: Error updating file"
+          }
+        },
+        {
           "name": "List Files",
           "request": {
             "method": "GET",
