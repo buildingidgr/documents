@@ -88,20 +88,18 @@ export async function createPresignedUploadUrl(key: string, contentType: string)
       Key: key,
       Conditions: [
         ['content-length-range', 0, 52428800], // 50MB max
-        ['starts-with', '$Content-Type', contentType],
+        ['eq', '$Content-Type', contentType]
       ],
       Fields: {
-        'Content-Type': contentType,
+        'Content-Type': contentType
       },
-      Expires: 600, // URL expires in 10 minutes
+      Expires: 600 // URL expires in 10 minutes
     });
 
     return {
       url,
       fields,
-      bucket: config.bucketName,
-      key,
-      region: config.region
+      key
     };
   } catch (error) {
     console.error('Error creating presigned URL:', error);
