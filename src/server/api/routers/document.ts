@@ -60,6 +60,62 @@ export const documentRouter = createTRPCRouter({
       }
     }),
 
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      console.log('Document delete procedure called');
+      console.log('Document ID:', input.id);
+      console.log('Current user:', ctx.userId);
+
+      try {
+        // First check if the user has access to this document
+        const document = await ctx.prisma.document.findFirst({
+          where: {
+            id: input.id,
+            users: {
+              some: {
+                id: ctx.userId
+              }
+            }
+          }
+        });
+
+        if (!document) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Document not found or you do not have permission to delete it',
+          });
+        }
+
+        // Delete the document and all related versions
+        await ctx.prisma.document.delete({
+          where: {
+            id: input.id,
+          },
+        });
+
+        console.log('Document deleted successfully:', input.id);
+        return { success: true, id: input.id };
+      } catch (error) {
+        console.error('Error deleting document:', error);
+        if (error instanceof TRPCError) {
+          throw error;
+        }
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: `Failed to delete document: ${error.message}`,
+            cause: error,
+          });
+        }
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'An unexpected error occurred while deleting the document',
+          cause: error,
+        });
+      }
+    }),
+
   // ... other procedures remain unchanged
 });
 
