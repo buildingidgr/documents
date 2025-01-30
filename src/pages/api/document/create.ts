@@ -7,14 +7,11 @@ import { Prisma, User } from '@prisma/client';
 // Plate.js content schema
 const plateContentSchema = z.object({
   type: z.literal('doc'),
-  content: z.array(z.object({
-    type: z.string(),
-    content: z.array(z.object({
+  content: z.array(
+    z.object({
       type: z.string(),
-      text: z.string().optional(),
-      content: z.array(z.any()).optional(),
-    })).optional(),
-  })),
+    }).passthrough() // Allow any additional properties
+  ),
 });
 
 const documentInputSchema = z.object({
