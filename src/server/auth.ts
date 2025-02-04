@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import { db } from './db';
 
 interface AuthResponse {
   isValid: boolean;
@@ -103,6 +104,45 @@ export async function authenticateUser(token?: string): Promise<string> {
         code: 'UNAUTHORIZED',
         message: 'Invalid token',
       });
+    }
+
+    // Check if user exists in database
+    const existingUser = await db.user.findUnique({
+      where: { id: authResponse.userId }
+    });
+
+    // If user doesn't exist, create them
+    if (!existingUser) {
+      console.log('Creating new user:', {
+        userId: authResponse.userId,
+        timestamp: new Date().toISOString()
+      });
+
+      try {
+        await db.user.create({
+          data: {
+            id: authResponse.userId,
+          }
+        });
+        console.log('User created successfully:', {
+          userId: authResponse.userId,
+          timestamp: new Date().toISOString()
+        });
+      } catch (createError) {
+        console.error('Error creating user:', {
+          userId: authResponse.userId,
+          error: createError instanceof Error ? {
+            message: createError.message,
+            name: createError.name,
+            stack: createError.stack
+          } : createError,
+          timestamp: new Date().toISOString()
+        });
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to create user record',
+        });
+      }
     }
 
     return authResponse.userId;
